@@ -1,0 +1,4 @@
+interface:
+  display_name: "Goal Workflow"
+  short_description: "Draft, save, and run Codex goals"
+  default_prompt: "Use $goal-workflow to interview me, draft a Goal mode prompt, save it to a file, then ask before starting the goal."
