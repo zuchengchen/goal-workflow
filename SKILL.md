@@ -1,6 +1,6 @@
 ---
 name: goal-workflow
-description: Interview-driven workflow for Codex Goal mode. Use when the user wants Codex to call or apply define-goal, discuss missing details step by step, draft a Goal mode prompt, get user approval before saving it, save it to a goal file, get user approval again, and then start or hand off to Goal mode execution.
+description: Interview-driven workflow for Codex Goal mode. Use when the user invokes `$goal-workflow` with a rough task such as "$goal-workflow refactor this project's auth module" or otherwise wants Codex to automatically use define-goal-style criteria, discuss missing details step by step, draft a Goal mode prompt, get approval before saving it, save it to a goal file, get approval again, and then start or hand off to Goal mode execution.
 ---
 
 # Goal Workflow
@@ -9,7 +9,21 @@ description: Interview-driven workflow for Codex Goal mode. Use when the user wa
 
 Use this skill to turn a rough user intention into an approved, saved, executable Codex Goal mode prompt.
 
-This skill coordinates four phases: define the goal, save the goal prompt, confirm execution, and start Goal mode. Prefer the `$define-goal` skill when available. If it is unavailable, apply the goal quality bar in this file directly.
+This skill coordinates four phases: define the goal, save the goal prompt, confirm execution, and start Goal mode.
+
+The intended simple invocation is:
+
+```text
+$goal-workflow <rough task>
+```
+
+For example:
+
+```text
+$goal-workflow 重构这个项目的认证模块
+```
+
+When invoked this way, treat the text after `$goal-workflow` as the user's rough intent and automatically apply `$define-goal` behavior. The user should not need to explicitly mention `$define-goal`.
 
 ## Non-Negotiable Gates
 
@@ -36,7 +50,11 @@ Do not block the drafting workflow if goal tools are unavailable; continue and l
 
 ### 2. Invoke Or Apply Define-Goal
 
-If `$define-goal` is available, use it as the goal-definition standard. The target goal must answer:
+Automatically invoke or apply `$define-goal` behavior after the user invokes `$goal-workflow`, even if the user did not mention `$define-goal`.
+
+If the `$define-goal` skill is available, use it as the goal-definition standard. If it is unavailable, apply the quality bar below directly. Do not ask the user whether to use `$define-goal`; this skill's purpose is to do that automatically.
+
+The target goal must answer:
 
 - What concrete thing will be true when the task is done?
 - What artifact, repo, system, environment, or user-facing behavior is involved?
