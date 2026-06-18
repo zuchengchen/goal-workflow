@@ -153,13 +153,13 @@ If the user requests changes, revise the draft and ask again. Do not save until 
 
 ### 6. Save The Goal File
 
-Default to a repo-local path:
+Default to a file in the current working directory:
 
 ```text
-.codex/goals/<YYYY-MM-DD>-<short-slug>.md
+<YYYY-MM-DD>-<short-slug>.md
 ```
 
-Use the current working directory as the base. Create `.codex/goals/` if needed. If the user specifies a path, use that path instead.
+Use the current working directory as the base. If the user specifies a path, use that path instead.
 
 After saving, tell the user the exact file path and summarize the objective in one or two sentences.
 
