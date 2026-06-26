@@ -62,13 +62,13 @@ codex features enable goals
 最简单的方式是在 Codex 中直接输入安装请求：
 
 ```text
-安装 skill https://github.com/zuchengchen/goal-workflow（仓库根目录，分支 master），并同时检查/安装 $define-goal skill；安装完成后提醒我重启 Codex。
+安装 skill https://github.com/zuchengchen/goal-workflow，并同时安装 $define-goal skill
 ```
 
 如果只想安装本 skill，也可以输入：
 
 ```text
-安装 skill https://github.com/zuchengchen/goal-workflow（仓库根目录，分支 master）
+安装 skill https://github.com/zuchengchen/goal-workflow
 ```
 
 建议使用不带 `.git` 的 GitHub URL。Codex 通常能理解 `https://github.com/zuchengchen/goal-workflow.git`，但 `$skill-installer` 的脚本接口按 GitHub 页面 URL 解析，不带 `.git` 更稳。

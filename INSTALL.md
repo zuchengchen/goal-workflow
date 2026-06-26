@@ -45,7 +45,7 @@ sudo apt install git
 推荐直接在 Codex 中输入自然语言安装请求：
 
 ```text
-安装 skill https://github.com/zuchengchen/goal-workflow（仓库根目录，分支 master），并同时检查/安装 $define-goal skill；安装完成后提醒我重启 Codex。
+安装 skill https://github.com/zuchengchen/goal-workflow，并同时安装 $define-goal skill
 ```
 
 这会让 Codex 使用 `$skill-installer` 类安装流程来安装 GitHub skill。当前仓库的 skill 位于仓库根目录，并且远程分支是 `master`，所以提示词里明确写出“仓库根目录，分支 master”最稳。
@@ -55,7 +55,7 @@ sudo apt install git
 如果只安装 `goal-workflow`，可以输入：
 
 ```text
-安装 skill https://github.com/zuchengchen/goal-workflow（仓库根目录，分支 master）
+安装 skill https://github.com/zuchengchen/goal-workflow
 ```
 
 建议使用不带 `.git` 的 URL。`https://github.com/zuchengchen/goal-workflow.git` 对人类来说清楚，但安装脚本的 URL 解析更适合不带 `.git` 的 GitHub 页面地址。
@@ -77,7 +77,7 @@ sudo apt install git
 如果你希望一次完成，请把要求写在同一句安装提示词里：
 
 ```text
-安装 skill https://github.com/zuchengchen/goal-workflow（仓库根目录，分支 master），并同时检查/安装 $define-goal skill；如果 $define-goal 已经存在就跳过。
+安装 skill https://github.com/zuchengchen/goal-workflow，并同时安装 $define-goal skill
 ```
 
 如果 Codex 找不到可安装的 `$define-goal` 来源，它会说明原因；此时 `goal-workflow` 仍然可用。
