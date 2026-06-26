@@ -64,6 +64,8 @@ sudo apt install git
 
 `$define-goal` 是推荐依赖，不是硬依赖。`goal-workflow` 会优先使用 `$define-goal` 的目标定义标准；如果它不存在，仍会使用内置的目标质量规则继续工作。
 
+`goal-workflow` 还内置了适合 Codex Goal mode 的 brainstorming 阶段。它会在模糊、设计型或多方案任务中先比较方向，再进入目标定义；这不需要额外安装 Claude Code / Superpowers 的 `$brainstorming` skill。
+
 当前 Codex skill 元数据不支持声明另一个 skill 作为传递安装依赖。换句话说，仅安装：
 
 ```text
@@ -167,6 +169,7 @@ pnpm install
 | Git | 可选 | 仅在使用 `git clone` 或 `git pull` 安装/更新时需要。 |
 | Goal mode | 必需 | 该 skill 的最终输出面向 `/goal`。 |
 | `$define-goal` skill | 推荐 | 用于复用更完整的目标定义标准；没有时会使用内置降级规则。 |
+| `$brainstorming` skill | 不需要 | 已内置 brainstorming 阶段，不依赖独立 skill。 |
 
 如果 `/goal` 不可用，请启用 goals feature：
 

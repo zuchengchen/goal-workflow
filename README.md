@@ -1,6 +1,6 @@
 # Goal Workflow
 
-`goal-workflow` 是一个 Codex Agent Skill，用来把一句粗略任务转成可执行的 Codex Goal mode 提示词。它会先帮助你澄清目标、范围、验证方式和停止条件，得到确认后保存 goal 文件，再二次确认是否启动 Goal mode。
+`goal-workflow` 是一个 Codex Agent Skill，用来把一句粗略任务转成可执行的 Codex Goal mode 提示词。它会先用轻量的 brainstorming 流程帮助你探索方向、比较方案并确认设计取舍，然后澄清目标、范围、验证方式和停止条件，得到确认后保存 goal 文件，再二次确认是否启动 Goal mode。
 
 典型用法：
 
@@ -10,8 +10,10 @@ $goal-workflow 重构这个项目的认证模块
 
 ## 它做什么
 
+- 对模糊、设计型或多方案任务，先检查相关上下文，再给出 2-3 个可选方案、取舍和推荐方向。
+- 一次只问一个关键澄清问题，避免把 brainstorming 或目标定义流程变成大段表单。
+- 在模糊或设计型任务中，先确认设计方向，再起草最终 Goal mode 提示词。
 - 自动应用 `$define-goal` 风格的目标澄清标准。
-- 一次只问一个关键问题，避免把目标定义流程变成大段表单。
 - 生成适合 Goal mode 的 Markdown 提示词。
 - 在保存 goal 文件前要求用户确认。
 - 保存后再次确认，才启动或交接给 Goal mode。
@@ -46,6 +48,10 @@ codex features enable goals
 推荐但不是强制：
 
 - `$define-goal` skill。`goal-workflow` 会优先使用它的目标定义标准；如果没有安装，也会使用内置的目标质量检查规则继续工作。
+
+不需要额外安装：
+
+- `$brainstorming` skill。`goal-workflow` 已经内置了适合 Codex Goal mode 的 brainstorming 阶段，但不会安装或复制 Claude Code / Superpowers 的独立 skill。
 
 注意：当前 Codex skill 元数据不支持声明“安装本 skill 时自动安装另一个 skill”的传递依赖；`agents/openai.yaml` 目前主要支持 MCP 工具依赖。因此如果你想同时安装 `$define-goal`，请在安装提示词里明确要求 Codex 一并安装或确认。
 
@@ -114,13 +120,18 @@ $goal-workflow 给这个仓库补一套最小但可靠的测试
 
 技能会引导你确认：
 
+- 这个任务是否需要先 brainstorming，或是否可以轻量跳过。
+- 当前项目上下文里有哪些相关约束和已有模式。
+- 可选方案、主要取舍和推荐方向。
 - 最终要达成的具体结果。
 - 涉及哪些仓库、文件、模块或用户流程。
 - 哪些内容在范围内，哪些不做。
 - 用什么命令、测试、人工检查或验收标准证明完成。
 - 遇到哪些情况时 Codex 应该停止询问，而不是自行猜测。
 
-当 goal prompt 草稿完成后，它会先询问是否保存。保存后，它会再询问是否启动 Goal mode。
+如果问题包含多个预设选项，技能会用 `1.`、`2.`、`3.` 这样的数字编号列出选项，你可以只回复数字来选择。对于“是/否”问题，技能会提示用 `y` 或 `Y` 表示是，用 `n` 或 `N` 表示否。
+
+对于模糊或设计型任务，它会先询问你是否认可推荐方向；当 goal prompt 草稿完成后，它会再询问是否保存。保存后，它会再次询问是否启动 Goal mode。
 
 ## 更新
 
