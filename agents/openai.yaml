@@ -1,4 +1,4 @@
 interface:
   display_name: "Goal Workflow"
-  short_description: "Brainstorm and launch Codex goals"
-  default_prompt: "Use $goal-workflow to brainstorm my rough task, turn it into an approved Codex goal, save it, and ask before starting Goal mode."
+  short_description: "Deeply interview and launch Codex goals"
+  default_prompt: "Use $goal-workflow to deeply discuss my rough task one question at a time, turn it into an approved Codex goal, save it, and ask before starting Goal mode."

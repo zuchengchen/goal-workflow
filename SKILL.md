@@ -1,6 +1,6 @@
 ---
 name: goal-workflow
-description: Interview-driven workflow for Codex Goal mode with an upfront brainstorming phase. Use when the user invokes `$goal-workflow` with a rough task such as "$goal-workflow refactor this project's auth module" or otherwise wants Codex to explore context, compare 2-3 approaches, get design-direction approval, apply define-goal-style criteria, draft a Goal mode prompt, get approval before saving it, save it to a goal file, get approval again, and then start or hand off to Goal mode execution.
+description: Interview-driven workflow for Codex Goal mode with upfront brainstorming and a comprehensive one-question-at-a-time discovery interview before prompt drafting. Use when the user invokes `$goal-workflow` with a rough task such as "$goal-workflow refactor this project's auth module" or otherwise wants Codex to explore context, compare 2-3 approaches, discuss goals, scope, risks, verification, rollout, and stop conditions in depth, draft a Goal mode prompt, get approval before saving it, save it to a goal file, get approval again, and then start or hand off to Goal mode execution.
 ---
 
 # Goal Workflow
@@ -9,7 +9,7 @@ description: Interview-driven workflow for Codex Goal mode with an upfront brain
 
 Use this skill to turn a rough user intention into an approved, saved, executable Codex Goal mode prompt.
 
-This skill coordinates five phases: brainstorm the direction, define the goal, save the goal prompt, confirm execution, and start Goal mode.
+This skill coordinates six phases: brainstorm the direction, run a comprehensive discovery interview, define the goal, save the goal prompt, confirm execution, and start Goal mode.
 
 The intended simple invocation is:
 
@@ -35,6 +35,10 @@ When invoked this way, treat the text after `$goal-workflow` as the user's rough
 - Prefer a reasonable default when the user is unsure, but still ask for approval before saving or starting.
 - Keep the workflow in the user's language.
 - Do not draft the final Goal mode prompt for ambiguous or design-heavy work until the user approves the recommended design direction.
+- Do not draft the final Goal mode prompt until the comprehensive discovery coverage map has been reviewed.
+- When the user asks for a detailed, exhaustive, careful, or full discussion, continue asking one discovery question at a time until the user explicitly approves drafting.
+- Do not silently treat unexplored discovery areas as irrelevant; mark each area as answered, defaulted, skipped, or not applicable.
+- Before drafting, summarize unresolved assumptions and ask whether to continue exploring them or draft with the current conclusions.
 - Do not mark a goal complete without the evidence named in the goal.
 
 ## Workflow
@@ -83,7 +87,75 @@ Maintain a brainstorming draft with these fields when useful:
 - Open question
 - Approved direction
 
-### 3. Invoke Or Apply Define-Goal
+### 3. Comprehensive Discovery Interview
+
+Run this phase before drafting the Goal mode prompt. Use it for every invocation. When the user asks for detailed, exhaustive, careful, or full planning, treat this phase as the center of the workflow. If the user explicitly asks for a lightweight goal, still create the coverage map, ask only the highest-risk missing questions, and mark the remaining areas as skipped by the user before the coverage summary.
+
+Ask exactly one concise question at a time. Depth comes from a sequence of focused questions, not from a long questionnaire in one message.
+
+Maintain a discovery coverage map. Every area must end with one of these statuses:
+
+- Answered
+- Defaulted by the user
+- Skipped by the user
+- Not applicable, with a brief reason
+
+Do not mark an area as not applicable when unsure. Ask a short question instead.
+
+Cover these areas before drafting:
+
+- Desired outcome and definition of done
+- Current problem, pain, or motivation
+- Target repo, modules, files, systems, or workflows
+- Current behavior and desired behavior
+- Users, stakeholders, or affected parties
+- In-scope changes
+- Out-of-scope boundaries
+- Existing constraints, conventions, dependencies, or local patterns
+- Prior attempts, decisions, issues, or relevant history
+- Alternative approaches and trade-offs
+- User-facing behavior, API, CLI, UI, or configuration changes
+- Data model, persistence, migrations, or state changes
+- Security, privacy, permissions, secrets, or compliance
+- Error handling, logging, observability, or operations
+- Performance, scalability, reliability, or concurrency
+- Backward compatibility and migration path
+- Testing strategy and exact verification commands
+- Manual review or acceptance criteria
+- Documentation, examples, or release notes
+- Rollout, deployment, feature flags, or rollback
+- Risks, unknowns, assumptions, and dependencies on external state
+- Stop conditions where Codex must ask instead of guessing
+- Goal file path and naming
+
+Use this question loop:
+
+1. Pick the highest-impact unresolved discovery area.
+2. Ask one question in the user's language.
+3. If the user is unsure, offer two or three numbered choices and recommend one.
+4. Record the answer, default, skip, or not-applicable reason.
+5. If an answer reveals a new risk or missing area, add it to the coverage map.
+6. Continue until all areas are resolved or the user explicitly asks to draft.
+
+If the user says to skip the remaining questions, mark unresolved areas as skipped and continue to the coverage summary. If the user says to start drafting, do not ask more discovery questions unless a missing answer would make the prompt unsafe or impossible.
+
+Before drafting, show a short coverage summary:
+
+- Answered
+- Defaulted
+- Skipped
+- Not applicable
+- Still unresolved
+
+Then ask:
+
+```text
+是否继续深挖未确认项？回复 y/Y 表示继续逐项讨论；回复 n/N 表示基于当前结论起草 Goal mode 提示词。
+```
+
+If the user chooses to continue, resume the one-question loop. If the user chooses to draft, carry any skipped or unresolved items into the goal prompt as assumptions, out-of-scope items, or stop conditions.
+
+### 4. Invoke Or Apply Define-Goal
 
 Automatically invoke or apply `$define-goal` behavior after the user invokes `$goal-workflow`, even if the user did not mention `$define-goal`.
 
@@ -101,9 +173,9 @@ The target goal must answer:
 
 Repair weak goals before proceeding. Weak goals include activity-only targets such as "make progress", "investigate", "improve things", "clean this up", or "work on X".
 
-Use the approved brainstorming direction as input to the goal definition. If brainstorming showed that the user's request is already clear, keep the goal definition concise and do not repeat the same questions.
+Use the approved brainstorming direction and discovery coverage map as input to the goal definition. If discovery already answered a quality-bar item, do not ask it again; summarize it in the working draft.
 
-### 4. Interview One Detail At A Time
+### 5. Resolve Remaining Goal Details
 
 Maintain a working draft with these fields:
 
@@ -115,8 +187,12 @@ Maintain a working draft with these fields:
 - Stop conditions
 - Goal file path
 - Brainstorming direction, when one was approved
+- Discovery coverage summary
+- Assumptions and skipped areas
 
-Ask the most important missing question first. Use this priority order:
+Ask the most important missing question first, but continue through the full discovery coverage map before drafting. Prioritize questions that affect design direction, scope, verification, risk, or stop conditions. Do not stop merely because the objective is basically understandable; stop only when the coverage map has been reviewed and the user approves drafting.
+
+Use this priority order for remaining gaps:
 
 1. Desired outcome
 2. Target repo, files, modules, systems, or user workflow
@@ -126,9 +202,9 @@ Ask the most important missing question first. Use this priority order:
 6. Stop condition
 7. Goal file path
 
-When the user is unsure, offer two or three concrete choices, number them, tell the user they may reply with only the number, and recommend one. Continue until the goal quality bar is met.
+When the user is unsure, offer two or three concrete choices, number them, tell the user they may reply with only the number, and recommend one. Continue until the goal quality bar is met, the discovery coverage summary has been reviewed, and the user has approved drafting.
 
-### 5. Draft The Goal Mode Prompt
+### 6. Draft The Goal Mode Prompt
 
 Create a prompt suitable for Goal mode. Keep the concise objective standalone, because it may be passed directly to `/goal` or a goal tool.
 
@@ -154,6 +230,10 @@ Use this structure for the full prompt:
 ### Brainstorming Direction
 
 <Approved approach and key trade-off, or "Not needed for this narrow task.">
+
+### Discovery Summary
+
+<Key answered areas, defaults, skipped areas, assumptions, and still-relevant unknowns from the discovery coverage map.>
 
 ### Scope
 
@@ -183,7 +263,7 @@ For short goals, the Goal Mode Objective may contain the full objective. For lon
 Follow the saved goal file at `<path>`; complete the task only when the verification section passes, and stop to ask if any listed stop condition occurs.
 ```
 
-### 6. Get Approval Before Saving
+### 7. Get Approval Before Saving
 
 Show the drafted prompt to the user before writing any file. Ask a direct approval question:
 
@@ -193,7 +273,7 @@ Show the drafted prompt to the user before writing any file. Ask a direct approv
 
 If the user requests changes, revise the draft and ask again. Do not save until approved.
 
-### 7. Save The Goal File
+### 8. Save The Goal File
 
 Default to a file in the current working directory:
 
@@ -205,7 +285,7 @@ Use the current working directory as the base. If the user specifies a path, use
 
 After saving, tell the user the exact file path and summarize the objective in one or two sentences.
 
-### 8. Get Approval Before Starting Goal Mode
+### 9. Get Approval Before Starting Goal Mode
 
 After the file is saved, ask for a second confirmation:
 
@@ -215,7 +295,7 @@ Goal 文件已经保存到 `<path>`。现在要启动 Goal mode 吗？回复 y/Y
 
 Do not start Goal mode until the user approves this second gate.
 
-### 9. Start Goal Mode
+### 10. Start Goal Mode
 
 If a goal tool is available:
 
@@ -243,7 +323,7 @@ or:
 codex features enable goals
 ```
 
-### 10. Execute And Complete
+### 11. Execute And Complete
 
 During execution:
 
