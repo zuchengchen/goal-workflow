@@ -1,18 +1,20 @@
 # Goal: Initialize And Push Goal Workflow Repo
 
+> Historical design record. It describes the repository state at the time; current behavior and installation instructions live in the canonical skill and repository documentation.
+
 ## Goal Mode Objective
 
-Follow the saved goal file at `2026-06-18-git-init-and-push.md`; complete the task only when the verification section passes, and stop to ask if any listed stop condition occurs.
+Follow the saved goal file at `docs/history/2026-06-18-git-init-and-push.md`; complete the task only when the verification section passes, and stop to ask if any listed stop condition occurs.
 
 ## Full Prompt
 
 ### Objective
 
-Ensure `/home/czc/projects/working/goal-workflow` is a valid Git repository, commit the approved `SKILL.md` change that makes goal prompts default to the current working directory, configure `origin` as `git@github.com:zuchengchen/goal-workflow.git`, and push the current local `master` branch to that remote with upstream tracking.
+Ensure `<repo-root>` is a valid Git repository, commit the approved `SKILL.md` change that makes goal prompts default to the current working directory, configure `origin` as `git@github.com:zuchengchen/goal-workflow.git`, and push the current local `master` branch to that remote with upstream tracking.
 
 ### Context
 
-The repository is already initialized as a Git worktree at `/home/czc/projects/working/goal-workflow`.
+The repository is already initialized as a Git worktree at `<repo-root>`.
 
 At drafting time:
 
@@ -22,7 +24,7 @@ At drafting time:
   - `f474c60 Create goal workflow skill`
 - No Git remotes are configured.
 - `SKILL.md` has an approved tracked change: the default goal file path is now `<YYYY-MM-DD>-<short-slug>.md` in the current working directory instead of `.codex/goals/<YYYY-MM-DD>-<short-slug>.md`.
-- `2026-06-18-git-init-and-push.md` is the saved Goal mode prompt in the current working directory and should remain local workflow metadata unless the user explicitly asks to commit it.
+- At the time, `2026-06-18-git-init-and-push.md` was intended to remain local workflow metadata. It is now retained under `docs/history/` as an explicit historical record.
 
 Because `.git` already exists, do not reinitialize destructively. Reuse the existing repository state.
 
@@ -47,7 +49,7 @@ Codex must not:
 - Delete or overwrite remote branches.
 - Change GitHub repository settings.
 - Modify project files beyond the already-approved `SKILL.md` path-default change.
-- Commit `2026-06-18-git-init-and-push.md` unless the user explicitly approves that later.
+- Commit the original local goal file unless the user explicitly approves that later.
 
 ### Verification
 
@@ -55,11 +57,11 @@ Completion requires all applicable checks to pass:
 
 - `git rev-parse --is-inside-work-tree` outputs `true`.
 - `git branch --show-current` outputs `master`.
-- `git log -1 --name-only --oneline` shows a new commit whose file list includes `SKILL.md` and does not include `2026-06-18-git-init-and-push.md`.
+- `git log -1 --name-only --oneline` shows a new commit whose file list includes `SKILL.md` and does not include the original local goal file.
 - `git remote get-url origin` outputs exactly `git@github.com:zuchengchen/goal-workflow.git`.
 - `git push -u origin master` succeeds, or the branch is already pushed and tracking is correctly configured.
 - `git rev-parse HEAD` matches the commit hash reported by `git ls-remote origin refs/heads/master`.
-- `git status --short --branch` shows `master` tracking `origin/master`, with no uncommitted tracked changes. `2026-06-18-git-init-and-push.md` may remain untracked as local workflow metadata.
+- `git status --short --branch` shows `master` tracking `origin/master`, with no uncommitted tracked changes. The original local goal file may remain untracked as workflow metadata.
 
 ### Stop Conditions
 

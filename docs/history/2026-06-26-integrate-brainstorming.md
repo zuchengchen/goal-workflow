@@ -1,8 +1,10 @@
 # Goal: Integrate Brainstorming Into Goal Workflow
 
+> Historical design record. It describes an earlier implementation; current behavior and validation commands live in the canonical skill and repository documentation.
+
 ## Goal Mode Objective
 
-Follow the saved goal file at `2026-06-26-integrate-brainstorming.md`; complete the task only when the verification section passes, and stop to ask if any listed stop condition occurs.
+Follow the saved goal file at `docs/history/2026-06-26-integrate-brainstorming.md`; complete the task only when the verification section passes, and stop to ask if any listed stop condition occurs.
 
 ## Full Prompt
 
@@ -12,7 +14,7 @@ Update the current `goal-workflow` Codex skill so it includes a Claude Code / Su
 
 ### Context
 
-The target repository is `/home/czc/projects/working/goal-workflow`.
+The target repository is `<repo-root>`.
 
 The current skill is centered on turning a rough task into an approved, saved, executable Codex Goal mode prompt. It already applies `$define-goal` behavior, asks one concise question at a time, drafts a Goal mode prompt, requires approval before saving, and requires a second approval before starting Goal mode.
 
@@ -63,7 +65,7 @@ After editing, verify all of the following:
 6. Run the skill validation script if available:
 
 ```bash
-/home/czc/.codex/skills/.system/skill-creator/scripts/quick_validate.py /home/czc/projects/working/goal-workflow
+python3 "${CODEX_HOME:-$HOME/.codex}/skills/.system/skill-creator/scripts/quick_validate.py" "<repo-root>/skills/goal-workflow"
 ```
 
 7. Review the final diff with:

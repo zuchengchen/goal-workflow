@@ -1,0 +1,52 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Validate repository and eval schema
+        run: scripts/validate.sh
+
+      - name: Smoke test local install lifecycle
+        run: scripts/smoke-install.sh
+
+      - name: Run system quick validator when available
+        shell: bash
+        run: |
+          quick_validate=""
+          if command -v quick_validate.py >/dev/null 2>&1; then
+            quick_validate="$(command -v quick_validate.py)"
+          else
+            search_root="${CODEX_HOME:-$HOME/.codex}/skills"
+            if [[ -d "$search_root" ]]; then
+              quick_validate="$(find "$search_root" -path '*/skill-creator/scripts/quick_validate.py' -type f -print -quit 2>/dev/null || true)"
+            fi
+          fi
+
+          if [[ -n "$quick_validate" ]]; then
+            python3 "$quick_validate" skills/goal-workflow
+          else
+            echo "System quick_validate.py is unavailable; skipping optional check."
+          fi
+
+      - name: Check whitespace errors
+        shell: bash
+        run: |
+          empty_tree="$(git hash-object -t tree /dev/null)"
+          git diff --check "$empty_tree" HEAD
