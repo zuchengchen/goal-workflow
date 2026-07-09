@@ -28,6 +28,7 @@ REQUIRED_EVAL_CATEGORIES = {
     "path_collision",
     "non_chinese",
     "token_budget",
+    "verification_integrity",
 }
 
 
@@ -202,6 +203,59 @@ def require_pattern(
     checks.require(re.search(pattern, body, flags) is not None, message)
 
 
+def validate_verification_integrity(body: str, path: Path, checks: Checks) -> None:
+    normalized = re.sub(r"\s+", " ", body)
+    checks.require(
+        "### Verification Integrity" in body,
+        f"{path} must define a Verification Integrity phase",
+    )
+    requirements = [
+        (
+            r"exit status.{0,120}(?:machine-readable|structured report)",
+            "prefer producer exit status or structured reports",
+        ),
+        (
+            r"positive evidence.{0,260}zero applicable work.{0,180}discovered and executed",
+            "require positive execution evidence and reject zero-work success",
+        ),
+        (
+            r"broad prefix or keyword.{0,420}representative failure.{0,180}benign collision",
+            "calibrate text matchers against failing and benign samples",
+        ),
+        (
+            r"preserve failures.{0,120}pipelines.{0,260}`match`.{0,100}`no match`.{0,140}`search/read/parse error`",
+            "preserve pipeline failures and distinguish matcher outcomes",
+        ),
+        (
+            r"never use.{0,120}`! grep`.{0,80}`! rg`",
+            "prohibit bare negated searches for absence assertions",
+        ),
+        (
+            r"current run.{0,520}missing, stale, truncated, unreadable, unparsable",
+            "reject incomplete or stale verification evidence",
+        ),
+        (
+            r"cached evidence.{0,140}(?:key|provenance).{0,140}current inputs",
+            "tie cached evidence to current inputs and target",
+        ),
+        (
+            r"pair every negative assertion.{0,140}positive evidence",
+            "pair negative assertions with positive execution evidence",
+        ),
+        (
+            r"false positive.{0,180}verifier failure",
+            "distinguish product failures from verifier false positives",
+        ),
+    ]
+    for pattern, requirement in requirements:
+        require_pattern(
+            checks,
+            normalized,
+            pattern,
+            f"{path} must {requirement}",
+        )
+
+
 def validate_phase_order(body: str, path: Path, checks: Checks) -> None:
     headings = [
         match.group(1).strip()
@@ -324,6 +378,7 @@ def validate_workflow(body: str, path: Path, checks: Checks) -> None:
         r"token_budget.{0,180}(?:only|unless).{0,120}explicit|(?:only|unless).{0,120}explicit.{0,180}token_budget",
         f"{path} must set token_budget only when explicitly requested",
     )
+    validate_verification_integrity(body, path, checks)
     validate_phase_order(body, path, checks)
 
 
@@ -466,7 +521,7 @@ def validate_eval_case(
         expected.get("mode") in {"fast", "standard", "exhaustive"},
         f"{label}.expected.mode is invalid",
     )
-    validate_string_list(
+    required = validate_string_list(
         expected.get("required_behaviors"), f"{label}.expected.required_behaviors", checks
     )
     forbidden = validate_string_list(
@@ -474,6 +529,60 @@ def validate_eval_case(
     )
     for action in forbidden:
         checks.require(action in actions, f"{label} uses unknown forbidden action {action!r}")
+
+    if category == "verification_integrity":
+        raw_prompt = case.get("prompt")
+        prompt = raw_prompt if isinstance(raw_prompt, str) else ""
+        for marker in (
+            "latexmk -xelatex",
+            "stale failing",
+            "!\\left",
+            "! Undefined control sequence.",
+        ):
+            checks.require(
+                marker in prompt,
+                f"{label}.prompt must include verification fixture {marker!r}",
+            )
+
+        required_forbidden = {
+            "accept_uncalibrated_text_matcher",
+            "classify_any_bang_prefixed_line_as_tex_error",
+            "ignore_producer_exit_status",
+            "reuse_stale_verification_artifact",
+            "treat_inconclusive_evidence_as_success",
+        }
+        checks.require(
+            required_forbidden <= set(forbidden),
+            f"{label} must forbid every verification-integrity failure mode",
+        )
+
+        behavior_text = "\n".join(required).lower()
+        checks.require(
+            "producer" in behavior_text and "exit status" in behavior_text,
+            f"{label} must preserve the producer exit status",
+        )
+        checks.require(
+            "same production invocation" in behavior_text,
+            f"{label} must require fresh artifacts from the same invocation",
+        )
+        checks.require(
+            "calibrat" in behavior_text
+            and "!\\left" in behavior_text
+            and "! undefined control sequence." in behavior_text,
+            f"{label} must calibrate the declared failing and benign samples",
+        )
+        checks.require(
+            "no match" in behavior_text
+            and "search/read error" in behavior_text
+            and "pipeline" in behavior_text,
+            f"{label} must preserve pipeline failures and matcher error semantics",
+        )
+        checks.require(
+            "missing" in behavior_text
+            and "stale" in behavior_text
+            and "inconclusive" in behavior_text,
+            f"{label} must reject missing, stale, or inconclusive evidence",
+        )
 
     tool_order = expected.get("tool_order")
     if not isinstance(tool_order, list) or not tool_order:

@@ -23,6 +23,7 @@ This is a planning workflow until the goal becomes active. Do not implement the 
 - Never interpret silence, an unrelated confirmation, or approval of a design direction as either approval gate.
 - Do not silently expand scope or weaken verification.
 - Never copy secret values, credentials, or private tokens into the draft or saved goal file; refer to their names or retrieval mechanism instead.
+- Verification must not pass on absent, stale, incomplete, unreadable, or indeterminate evidence, or fail on a known benign collision in the target format.
 - Do not mark a goal complete without the evidence required by its saved prompt.
 
 For predefined choices, use numbered options and state that the user may answer with only the number. Recommend one option when a useful default exists. For binary approvals, state the accepted affirmative and negative replies; accept `y`/`Y` and `n`/`N` as well as clear natural-language answers.
@@ -100,7 +101,7 @@ Maintain a coverage map containing every area below:
 - Security, privacy, permissions, secrets, and compliance
 - Errors, observability, operations, performance, reliability, scalability, and concurrency
 - Compatibility, rollout, rollback, documentation, and release communication
-- Automated verification commands and manual acceptance criteria
+- Automated verification commands, oracle semantics, evidence freshness, calibration samples, expected work discovery, and manual acceptance criteria
 - Risks, assumptions, external dependencies, and stop conditions
 - Goal file location and safe filename
 - Explicitly requested goal-tool options, including a token budget when present
@@ -123,13 +124,25 @@ Before drafting, show a concise coverage summary grouped by status. Map every re
 
 Keep its history visible as `Unresolved -> <treatment>`; do not relabel it as answered. Ask whether the user wants to investigate further or draft with those mappings. Do not draft until the user accepts the mapping. If an unresolved item would make execution unsafe or impossible, keep interviewing instead of converting it into an assumption.
 
+### Verification Integrity
+
+Treat each automated verification item as an oracle that must distinguish success, product failure, and verifier or infrastructure failure.
+
+- Prefer the producing tool's documented exit status and machine-readable or structured report. Require positive evidence that the intended work ran against the intended target and produced the expected result; absence of a known error string alone is not sufficient. When a runner can succeed with zero applicable work, assert that the expected tests or items were discovered and executed.
+- If text matching is unavoidable, match the diagnostic record's severity, origin, delimiters, and required multiline context, not a broad prefix or keyword. Distinguish real failures from echoed input, source or code excerpts, wrapped continuation lines, summaries such as `0 errors`, allowed warnings, and other benign collisions. Calibrate every nontrivial custom matcher or parser against at least one representative failure and one benign collision, including multiline, wrapped, escaped, or continuation forms when the format permits them.
+- Make setup, the producer, and every assertion contribute to the final exit status. Preserve failures through pipelines and wrappers; avoid early-terminating live search pipelines that can change an upstream status; and distinguish `match`, `no match`, and `search/read/parse error`. Never use a bare negated search such as `! grep` or `! rg` for an absence assertion, or `|| true` when it can convert an operational failure into success.
+- Verify only complete evidence from the current run. Use a clean or unique output location or remove prior outputs first; capture every relevant stream in stable noninteractive form; then require expected reports, logs, and artifacts to exist, be readable, be nonempty when applicable, and belong to the current target and run. Accept cached evidence only when its key or provenance is demonstrably tied to the current inputs and target. Treat missing, stale, truncated, unreadable, unparsable, or otherwise indeterminate evidence as inconclusive, never as success.
+- Pair every negative assertion with positive evidence that the intended build, test, scanner, or code path actually ran. If a sound automated oracle cannot be defined, use an explicit manual acceptance criterion or a stop condition instead of an uncalibrated heuristic.
+
+For example, `rg '^!' build.log` is not by itself a sound TeX-error oracle: diagnostic, source, or verbatim continuation text may also begin with `!`. Prefer the compiler's status or structured report, or use a format-aware parser calibrated with both a real error record and a benign `!\left...` continuation.
+
 ### Draft
 
 Apply this built-in quality standard:
 
 - State one concrete outcome, not an activity such as "investigate", "make progress", "improve things", or "clean this up".
 - Identify the project, artifact, system, environment, or user-visible behavior involved.
-- Define evidence of completion through exact commands, tests, metrics, examples, review criteria, or manual checks.
+- Define evidence of completion through exact commands, tests, metrics, examples, review criteria, or manual checks that satisfy Verification Integrity.
 - Make scope and out-of-scope boundaries explicit.
 - Preserve approved constraints, decisions, assumptions, unresolved mappings, risks, and external dependencies.
 - State when execution must stop and ask rather than guess.
@@ -179,7 +192,7 @@ Follow the saved goal file at `<absolute-path>`; complete the task only when all
 
 ### Verification
 
-<exact automated commands plus manual acceptance criteria>
+<exact automated commands with explicit success semantics, freshness and calibration safeguards, plus manual acceptance criteria>
 
 ### Risks And Rollout
 
@@ -245,6 +258,8 @@ Once active, treat the saved goal file as read-only and as the source of truth:
 - Work only within its scope and approved direction.
 - Stop on its stop conditions instead of guessing.
 - Run every required verification item and report actual results.
+- Treat skipped, zero-work, missing, stale, unreadable, truncated, or otherwise indeterminate evidence as failed verification unless the saved prompt explicitly defines it as acceptable.
+- When a check fails, distinguish product failure from verifier or environment failure. Do not change product behavior merely to appease a false positive or treat a verifier failure as success. Repair a project-owned verifier only when scope permits and the acceptance criterion remains unchanged; otherwise follow the material goal-revision rules.
 - Do not silently edit the active goal file. If the goal must change materially, stop execution, obtain explicit user direction, create a versioned successor by default, and repeat the draft, save, and start approvals as applicable.
 - Mark complete only when the objective is achieved and all required evidence passes. Mark blocked only when the applicable goal-tool contract permits it and the task is genuinely blocked.
 

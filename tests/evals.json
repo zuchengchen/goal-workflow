@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "Declarative behavioral scenarios for goal-workflow gates, fallbacks, language handling, and tool ordering. Checkpoint replies list decisive turns only; a harness must capture routine discovery turns without inventing approvals.",
+  "description": "Declarative behavioral scenarios for goal-workflow gates, fallbacks, language handling, verification integrity, and tool ordering. Checkpoint replies list decisive turns only; a harness must capture routine discovery turns without inventing approvals.",
   "actions": [
     "inspect_context",
     "check_active_goal",
@@ -35,7 +35,14 @@
     "change_language",
     "set_unrequested_token_budget",
     "drop_explicit_token_budget",
-    "enable_goals_automatically"
+    "enable_goals_automatically",
+    "inspect_verification_oracle",
+    "calibrate_verification_oracle",
+    "accept_uncalibrated_text_matcher",
+    "classify_any_bang_prefixed_line_as_tex_error",
+    "ignore_producer_exit_status",
+    "reuse_stale_verification_artifact",
+    "treat_inconclusive_evidence_as_success"
   ],
   "cases": [
     {
@@ -655,6 +662,89 @@
           }
         ],
         "terminal_state": "goal_started"
+      }
+    },
+    {
+      "id": "verification-integrity",
+      "title": "Verification preserves producer status and rejects uncalibrated log heuristics",
+      "category": "verification_integrity",
+      "user_language": "en-US",
+      "prompt": "$goal-workflow fast: define a Goal for verifying a XeLaTeX appendix. The authoritative producer is `latexmk -xelatex -interaction=nonstopmode -halt-on-error appendix.tex`, currently proposed as `latexmk -xelatex -interaction=nonstopmode -halt-on-error appendix.tex | tee build.out` followed by `! rg '^!' appendix.log`. A stale failing `appendix.log` predates this run. A fresh successful log can contain an Underfull warning whose wrapped monospace continuation begins `!\\left...`; a real-error sample contains `! Undefined control sequence.`. Require exact verification commands and calibrate any secondary detector against both samples.",
+      "checkpoint_replies": [
+        {
+          "at": "coverage_summary",
+          "content": "n"
+        },
+        {
+          "at": "save_approval",
+          "content": "y"
+        },
+        {
+          "at": "start_approval",
+          "content": "n"
+        }
+      ],
+      "setup": {
+        "requested_depth": "fast",
+        "goal_tool": "available",
+        "active_goal": "none",
+        "goal_file": "absent",
+        "explicit_token_budget": null
+      },
+      "expected": {
+        "mode": "fast",
+        "required_behaviors": [
+          "Require the producer latexmk command itself to exit successfully, preserving its exit status instead of replacing it with a later log scan.",
+          "Remove or isolate prior artifacts and inspect only a fresh log produced by the same production invocation.",
+          "Calibrate any secondary detector so the benign `!\\left...` sample passes and the real `! Undefined control sequence.` sample fails.",
+          "Preserve producer failures through every pipeline and distinguish search outcomes `match`, `no match`, and `search/read error`.",
+          "Treat missing, stale, unreadable, truncated, or otherwise inconclusive evidence as verification failure.",
+          "Do not infer a TeX error from every bang-prefixed line; use producer-native status or a TeX-aware calibrated check."
+        ],
+        "forbidden_actions": [
+          "invoke_define_goal",
+          "accept_uncalibrated_text_matcher",
+          "classify_any_bang_prefixed_line_as_tex_error",
+          "ignore_producer_exit_status",
+          "reuse_stale_verification_artifact",
+          "treat_inconclusive_evidence_as_success",
+          "write_before_save_approval",
+          "create_goal",
+          "start_before_second_approval"
+        ],
+        "tool_order": [
+          {
+            "before": "inspect_context",
+            "after": "inspect_verification_oracle",
+            "reason": "The producer and existing artifacts are inspected before the verification oracle is accepted."
+          },
+          {
+            "before": "inspect_verification_oracle",
+            "after": "calibrate_verification_oracle",
+            "reason": "The proposed oracle is understood before its positive and benign samples are calibrated."
+          },
+          {
+            "before": "calibrate_verification_oracle",
+            "after": "show_coverage",
+            "reason": "Verification integrity is resolved before the coverage summary and draft."
+          },
+          {
+            "before": "approve_save",
+            "after": "recheck_path",
+            "reason": "Saving remains behind the first approval gate."
+          },
+          {
+            "before": "recheck_path",
+            "after": "write_goal_file",
+            "reason": "The approved file is written only after the collision recheck."
+          },
+          {
+            "before": "write_goal_file",
+            "after": "approve_start",
+            "reason": "The saved verification contract precedes the second gate."
+          }
+        ],
+        "terminal_state": "saved_not_started"
       }
     }
   ]
