@@ -1,13 +1,13 @@
 ---
 name: goal-workflow
-description: Turn a rough task into an approved, saved, and executable Codex Goal mode prompt through adaptive brainstorming and a one-question-at-a-time discovery interview. Use when the user invokes `$goal-workflow`, asks to define or refine a durable Codex goal, or wants explicit scope, verification, risk, file-save approval, and launch approval before Goal mode starts.
+description: Turn a rough task into an approved, saved, and executable Codex Goal mode prompt through adaptive brainstorming, optional bounded subagent planning, and a one-question-at-a-time discovery interview. Use when the user invokes `$goal-workflow`, asks to define or refine a durable Codex goal, or wants explicit scope, verification, risk, subagent settings, file-save approval, and launch approval before Goal mode starts.
 ---
 
 # Goal Workflow
 
 ## Purpose
 
-Turn rough intent into a concrete Goal mode prompt, save the approved prompt under the target project's `.codex/goals/` directory, obtain a second approval, and then activate or hand off the goal.
+Turn rough intent into a concrete Goal mode prompt, decide whether bounded parallel subagents are useful, save the approved prompt under the target project's `.codex/goals/` directory, obtain a second approval, and then activate or hand off the goal.
 
 Keep this workflow self-contained. Do not invoke or trigger `$define-goal`, even when that skill is installed. Apply the quality standard in this file directly.
 
@@ -25,6 +25,9 @@ This is a planning workflow until the goal becomes active. Do not implement the 
 - Never copy secret values, credentials, or private tokens into the draft or saved goal file; refer to their names or retrieval mechanism instead.
 - Verification must not pass on absent, stale, incomplete, unreadable, or indeterminate evidence, or fail on a known benign collision in the target format.
 - Do not mark a goal complete without the evidence required by its saved prompt.
+- During `discovering` (the investigating phase), resolve subagent capability and policy before the coverage summary. Ask separately whether parallel subagents are needed, which currently available model to use, and which currently available reasoning depth to use when they are enabled. Do not launch a subagent before the second approval.
+- Never claim parallel execution unless a callable dispatch and join/status operation exists. Pass a model or reasoning override only when the user selected it and the callable operation accepts it; `inherit` means omit that override.
+- Keep the parent Goal as the sole owner of shared files, shared state, Goal status, integration, and final verification. Subagents may only handle bounded work with disjoint ownership and must return a compact result or isolated artifact.
 
 For predefined choices, use numbered options and state that the user may answer with only the number. Recommend one option when a useful default exists. For binary approvals, state the accepted affirmative and negative replies; accept `y`/`Y` and `n`/`N` as well as clear natural-language answers.
 
@@ -38,7 +41,7 @@ discovering -> drafted -> draft_approved -> saved -> start_approved -> active
 
 Never skip or merge states.
 
-- `discovering`: inspect context, handle existing-goal state, choose depth, brainstorm, interview, build the coverage map, and resolve the save path.
+- `discovering`: inspect context, handle existing-goal state, choose depth, brainstorm, resolve subagent policy, interview, build the coverage map, and resolve the save path.
 - `drafted`: show the complete proposed prompt and absolute save path. No file has been written.
 - `draft_approved`: the user has explicitly approved saving that exact prompt to that exact path. Any content or path change returns to `drafted` and invalidates the approval.
 - `saved`: write succeeded and a readback exactly matched the approved content. A write attempt alone is not sufficient.
@@ -87,6 +90,19 @@ For ambiguous or design-heavy work:
 
 For narrow work, record the assumed direction and why a comparison is unnecessary. Brainstorming chooses a direction; it does not produce implementation changes. Approval of a direction is not approval to save or start.
 
+### Subagent Planning
+
+Subagent planning is part of `discovering`/investigating and must finish before the final coverage summary and draft. It is a policy decision, not execution:
+
+1. Inspect the current callable tool schema for subagent dispatch, join/status, cancellation, model overrides, and reasoning-depth overrides. Do not infer support from a UI label or from a model name mentioned in documentation.
+2. Decide whether the goal contains at least two independent, bounded work units with disjoint ownership. Serial work, shared-file editing, or a single indivisible task does not benefit from parallel workers.
+3. Ask one concise question in the user's language: whether to enable parallel subagents for this goal. Offer numbered choices, recommend enabling only when the inspection found independent work, and record an explicit `no` when the user declines.
+4. If the user enables them, ask a separate question for the subagent model. Show only model identifiers accepted by the current callable schema, plus `inherit` when supported. Never invent an unavailable model or silently substitute a different one.
+5. Ask a separate question for reasoning depth. Show only values accepted by the current callable schema (for example `low`, `medium`, `high`, or `xhigh` when exposed), plus `inherit` when supported. Never silently substitute a different depth.
+6. If dispatch or either override is unavailable, explain the limitation and record the affected setting as `not supported`; do not promise parallel execution. If the user-selected setting cannot be passed exactly, stop and ask whether to disable subagents or revise the selection.
+
+Record the result in the coverage map as `Answered`, `Defaulted`, `Skipped`, or `Not applicable` with the reason. The saved prompt must include `enabled`, the exact selected model or `inherit`, the exact selected reasoning value or `inherit`, the discovered dispatch/join capability, and the permitted fallback. Do not ask model or reasoning questions when the user has explicitly disabled subagents.
+
 ### Discovery
 
 Maintain a coverage map containing every area below:
@@ -105,6 +121,7 @@ Maintain a coverage map containing every area below:
 - Risks, assumptions, external dependencies, and stop conditions
 - Goal file location and safe filename
 - Explicitly requested goal-tool options, including a token budget when present
+- Subagent need, runtime capability, model, reasoning depth, bounded parallelism, and fallback behavior
 
 Assign each area one status:
 
@@ -206,6 +223,10 @@ Follow the saved goal file at `<absolute-path>`; complete the task only when all
 
 <include only explicitly requested options, such as `token_budget: <positive-integer>`; omit this section when none were requested>
 
+### Subagent Options
+
+<include the investigated capability and, when applicable, `enabled: true|false`, the exact `model` or `inherit`, the exact `reasoning_effort` or `inherit`, and the allowed fallback. Do not include unsupported overrides>
+
 ## Completion Rule
 
 Do not mark this goal complete until the objective is achieved and every required verification item passes, unless the user explicitly changes the completion standard.
@@ -264,6 +285,20 @@ Once active, treat the saved goal file as read-only and as the source of truth:
 - Mark complete only when the objective is achieved and all required evidence passes. Mark blocked only when the applicable goal-tool contract permits it and the task is genuinely blocked.
 
 At completion, report the absolute goal file path, material changes, verification results, and remaining risks.
+
+#### Parallel Subagents
+
+When the saved `Subagent Options` says `enabled: true`:
+
+- Keep one parent Goal as the controller. Before each dispatch, derive a bounded batch of independent tasks with explicit inputs, outputs, ownership, and a completion signal. Do not fan out one worker per file or page without a reason, and do not dispatch when fewer than two useful independent tasks remain.
+- Call only the exposed dispatch operation (for example, `spawn_agent`) and pass the saved model and reasoning values only when the operation's schema accepts them. Omit an `inherit` override so the runtime can inherit the parent capability. Use an isolated context when the runtime supports it.
+- Start eligible siblings concurrently, retain every returned handle, and use the exposed join/status operation to collect every result. The parent must not proceed as if the batch finished while any handle is still pending.
+- Subagents must not edit shared source, shared manifests, the active goal file, or Goal status. The parent validates returned artifacts, merges them at one integration point, runs the required verification, and decides completion.
+- If dispatch, join, the selected model, or the selected reasoning value fails at runtime, record the exact failure. Continue serially only when the saved fallback explicitly permits it; otherwise stop and ask instead of silently changing the approved plan.
+
+#### Waiting For Agents
+
+`Waiting for agents` is a runtime wait status, not a Goal workflow state. It normally means the parent has dispatched one or more child handles and is waiting for a running or queued child result. Before waiting, inspect callable agent status and confirm the handles belong to the current Goal and batch. A long wait can also indicate a queued worker at the runtime concurrency limit, a failed child whose completion signal was not delivered, an open tool call, or stale dispatcher/UI state after a resumed Goal. Do not poll blindly, create a duplicate Goal, or claim progress without a result. If no current pending handle exists, report the runtime inconsistency and use the exposed cancellation or `/goal` lifecycle command only when the tool or command is actually supported; otherwise stop and ask the user. A Goal with `enabled: false` must not dispatch agents.
 
 ## Resume Rules
 

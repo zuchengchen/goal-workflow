@@ -7,11 +7,13 @@
 ### Changed
 
 - Goal 中的自动验证现在必须定义可靠的判定语义：优先使用生产工具退出码或结构化报告，证明预期工作确实执行，并只接受可追溯到当前输入和目标的完整证据。
+- Goal 启动前的 investigating 阶段现在会询问是否启用 bounded parallel subagent，并在启用时分别记录运行时支持的模型和 reasoning depth；执行协议要求父 Goal 统一管理共享状态、合并和最终验证。
 
 ### Fixed
 
 - 防止宽泛日志前缀或关键词匹配把换行续行、源码回显、`0 errors` 和允许的 warning 误判为失败；自定义匹配器必须用真实失败与良性碰撞样本校准。
 - 防止管道、`tee`、裸 `! grep` / `! rg`、`|| true`、陈旧产物或缺失日志吞掉真实失败或制造空洞成功；不可判定的验证结果不再计为通过。
+- 明确 `Waiting for agents` 是运行时等待 child handle 的提示，并要求检查 pending 状态、并发限制和 stale dispatcher，而不是盲目轮询或创建重复 Goal。
 
 ## [0.2.0] - 2026-07-10
 

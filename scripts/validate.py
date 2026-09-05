@@ -29,6 +29,7 @@ REQUIRED_EVAL_CATEGORIES = {
     "non_chinese",
     "token_budget",
     "verification_integrity",
+    "subagent_options",
 }
 
 
@@ -265,6 +266,7 @@ def validate_phase_order(body: str, path: Path, checks: Checks) -> None:
         ("active goal check", r"(?:existing|active).*goal|goal.*(?:existing|active)"),
         ("interview depth selection", r"^depth$|(?:interview|discovery).*(?:depth|mode)|(?:depth|mode).*(?:interview|discovery)"),
         ("brainstorming", r"brainstorm"),
+        ("subagent planning", r"subagent.*planning|planning.*subagent"),
         ("discovery", r"discovery"),
         ("drafting", r"draft"),
         ("save approval", r"approv.*sav|sav.*approv"),
@@ -377,6 +379,34 @@ def validate_workflow(body: str, path: Path, checks: Checks) -> None:
         normalized,
         r"token_budget.{0,180}(?:only|unless).{0,120}explicit|(?:only|unless).{0,120}explicit.{0,180}token_budget",
         f"{path} must set token_budget only when explicitly requested",
+    )
+    checks.require(
+        "### Subagent Planning" in body,
+        f"{path} must define a Subagent Planning phase",
+    )
+    require_pattern(
+        checks,
+        normalized,
+        r"ask (?:one|a single).{0,120}(?:whether|if).{0,120}parallel subagents",
+        f"{path} must ask whether parallel subagents are needed before drafting",
+    )
+    require_pattern(
+        checks,
+        normalized,
+        r"separate question.{0,160}subagent model.{0,220}separate question.{0,160}reasoning",
+        f"{path} must ask for subagent model and reasoning depth separately",
+    )
+    require_pattern(
+        checks,
+        normalized,
+        r"never claim parallel execution.{0,220}callable dispatch and join/status",
+        f"{path} must require callable subagent dispatch and join/status operations",
+    )
+    require_pattern(
+        checks,
+        normalized,
+        r"`Waiting for agents`.{0,220}runtime wait status",
+        f"{path} must explain the Waiting for agents runtime status",
     )
     validate_verification_integrity(body, path, checks)
     validate_phase_order(body, path, checks)

@@ -1,6 +1,6 @@
 # Goal Workflow
 
-`goal-workflow` 是一个自包含的 Codex skill：它通过逐步访谈把粗略任务整理成可执行、可验证的 Goal mode prompt，并在保存和启动前分别取得确认。
+`goal-workflow` 是一个自包含的 Codex skill：它通过逐步访谈把粗略任务整理成可执行、可验证的 Goal mode prompt，并在保存和启动前分别取得确认。调查阶段还会确认是否需要并行 subagent；启用时可选择运行时支持的模型和推理深度。
 
 ```text
 $goal-workflow 重构这个项目的认证模块
@@ -33,10 +33,18 @@ https://github.com/zuchengchen/goal-workflow/tree/v0.2.0/skills/goal-workflow
 - 在需要时检查项目上下文、比较 2-3 个方案并确认方向。
 - 覆盖目标、范围、约束、兼容性、安全、测试、发布、回滚和停止条件。
 - 将每项自动验证视为需要校准的判定器，保留生产命令退出码、使用当前运行证据，并防止文本扫描的假阳性和假阴性。
+- 在 investigating 阶段询问是否启用 bounded parallel subagent，并分别询问模型与 reasoning depth；只有运行时暴露对应能力时才会保存和使用这些设置。
+- 父 Goal 负责共享文件、合并和最终验证；subagent 只处理有明确边界的独立批次，不能创建重复 Goal 或修改共享状态。
 - 起草后先确认是否保存，保存后再确认是否启动 Goal mode。
 - 默认将 goal 文件保存到项目根的 `.codex/goals/`；无法确定项目根时使用当前工作目录下的 `.codex/goals/`。
 
 是否提交 `.codex/goals/` 由项目决定：个人 goal 通常应加入 `.gitignore`，团队共享的 goal 可以显式纳入版本控制。
+
+## `Waiting for agents` 的含义
+
+这不是 `goal-workflow` 的工作流状态，而是 Goal 运行时的等待提示。通常表示父 Goal 已派发一个或多个 subagent，正在等待仍处于 queued/running 状态的 child handle；也可能是运行时并发上限、子任务工具调用未返回、失败信号未送达，或恢复旧 Goal 后留下的 stale dispatcher/UI 状态。启用 subagent 后，父 Goal 必须检查当前 handle 属于本次 Goal 和批次，等所有结果返回后再合并，不能用轮询或重复创建 Goal 来掩盖等待。
+
+如果保存的 `Subagent Options` 是 `enabled: false`，本 skill 不会派发 agent。此时仍出现 `Waiting for agents`，应先检查当前 Goal 状态和运行时 agent 状态；没有当前 pending handle 时，应报告运行时不一致，并只使用实际暴露的取消或 `/goal` 生命周期命令。skill 不会假设一个并不存在的 dispatch/join 工具，也不会悄悄换用另一个模型或推理深度。
 
 ## 要求
 

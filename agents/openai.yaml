@@ -1,4 +1,4 @@
 interface:
   display_name: "Goal Workflow"
-  short_description: "Discover, approve, save, and launch Codex goals"
-  default_prompt: "Use $goal-workflow to turn my rough task into an adaptively interviewed, explicitly approved, saved Codex goal, then ask again before starting it."
+  short_description: "Plan, configure, save, and launch Codex goals"
+  default_prompt: "Use $goal-workflow to interview my task, decide whether bounded parallel subagents are useful, ask for their model and reasoning depth when enabled, save the approved Codex goal, then ask again before starting it."

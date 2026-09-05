@@ -345,6 +345,12 @@ codex features enable goals
 
 检查是否同时存在 `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow`、`$HOME/.agents/skills/goal-workflow` 和项目级 `.agents/skills/goal-workflow`。移除或备份重复来源，并启动新会话。
 
+### Goal 启动后显示 `Waiting for agents`
+
+这是运行时等待 child agent 的状态，不是本 skill 的状态机状态。若 goal 的 `Subagent Options` 为 `enabled: true`，先检查当前 Goal 的 pending handles、它们是否属于当前批次，以及运行时是否达到并发上限；只有所有 child 返回后父 Goal 才能合并和验证。长时间不变通常还可能是子任务工具调用未返回、失败信号未送达，或恢复 Goal 后的 stale dispatcher/UI 状态。
+
+若 `enabled: false` 却仍显示该状态，检查是否存在旧的 active Goal 或运行时残留 agent；没有当前 pending handle 时不要重复创建 Goal，改用当前工具实际支持的取消操作或 `/goal` lifecycle 命令，并报告运行时不一致。模型和 reasoning depth 只会使用 investigating 阶段确认且运行时 schema 接受的值。
+
 ### 是否需要安装 `$define-goal`
 
 不需要。0.2.0 起 `goal-workflow` 自包含目标质量标准和完整工作流，不读取或调用外部 `$define-goal`。

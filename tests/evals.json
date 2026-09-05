@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "Declarative behavioral scenarios for goal-workflow gates, fallbacks, language handling, verification integrity, and tool ordering. Checkpoint replies list decisive turns only; a harness must capture routine discovery turns without inventing approvals.",
+  "description": "Declarative behavioral scenarios for goal-workflow gates, fallbacks, language handling, verification integrity, optional subagent settings, and tool ordering. Checkpoint replies list decisive turns only; a harness must capture routine discovery turns without inventing approvals.",
   "actions": [
     "inspect_context",
     "check_active_goal",
@@ -8,6 +8,10 @@
     "ask_question",
     "compare_approaches",
     "approve_direction",
+    "inspect_subagent_capability",
+    "ask_subagent_need",
+    "ask_subagent_model",
+    "ask_subagent_reasoning",
     "show_coverage",
     "approve_draft",
     "show_draft",
@@ -19,6 +23,10 @@
     "approve_start",
     "create_goal",
     "create_goal_with_token_budget",
+    "dispatch_subagents",
+    "join_subagents",
+    "wait_for_agents",
+    "serial_fallback",
     "slash_handoff",
     "execute_goal",
     "present_goal_conflict_choices",
@@ -35,6 +43,8 @@
     "change_language",
     "set_unrequested_token_budget",
     "drop_explicit_token_budget",
+    "set_unrequested_subagent_option",
+    "drop_selected_subagent_option",
     "enable_goals_automatically",
     "inspect_verification_oracle",
     "calibrate_verification_oracle",
@@ -745,6 +755,100 @@
           }
         ],
         "terminal_state": "saved_not_started"
+      }
+    },
+    {
+      "id": "subagent-options",
+      "title": "Subagent policy is selected during investigation and applied only after launch approval",
+      "category": "subagent_options",
+      "user_language": "zh-CN",
+      "prompt": "$goal-workflow 为一个可以拆成独立代码审查批次的任务建立 Goal，并在 investigating 阶段询问是否启用并行 subagent、subagent 模型和推理深度",
+      "checkpoint_replies": [
+        {
+          "at": "subagent_need",
+          "content": "1"
+        },
+        {
+          "at": "subagent_model",
+          "content": "inherit"
+        },
+        {
+          "at": "subagent_reasoning",
+          "content": "high"
+        },
+        {
+          "at": "coverage_summary",
+          "content": "n"
+        },
+        {
+          "at": "save_approval",
+          "content": "y"
+        },
+        {
+          "at": "start_approval",
+          "content": "y"
+        }
+      ],
+      "setup": {
+        "requested_depth": "standard",
+        "goal_tool": "available",
+        "active_goal": "none",
+        "goal_file": "absent",
+        "explicit_token_budget": null
+      },
+      "expected": {
+        "mode": "standard",
+        "required_behaviors": [
+          "Inspect callable subagent dispatch, join/status, model, and reasoning capabilities before asking configuration questions.",
+          "Ask whether parallel subagents are needed, then ask the model and reasoning depth in separate questions before the coverage summary.",
+          "Save enabled, model inherit, and reasoning high as exact Subagent Options and apply them only after both approvals.",
+          "Dispatch only independent bounded workers concurrently, join every handle, and keep shared-file edits and final verification in the parent Goal."
+        ],
+        "forbidden_actions": [
+          "invoke_define_goal",
+          "ask_multiple_questions",
+          "set_unrequested_subagent_option",
+          "drop_selected_subagent_option",
+          "start_before_second_approval"
+        ],
+        "tool_order": [
+          {
+            "before": "inspect_context",
+            "after": "inspect_subagent_capability",
+            "reason": "The runtime capability and task shape are inspected before configuration is requested."
+          },
+          {
+            "before": "inspect_subagent_capability",
+            "after": "ask_subagent_need",
+            "reason": "The user decides whether to enable bounded parallel work after capability inspection."
+          },
+          {
+            "before": "ask_subagent_need",
+            "after": "ask_subagent_model",
+            "reason": "Model selection follows an affirmative subagent decision."
+          },
+          {
+            "before": "ask_subagent_model",
+            "after": "ask_subagent_reasoning",
+            "reason": "Reasoning depth is selected as a separate user decision."
+          },
+          {
+            "before": "ask_subagent_reasoning",
+            "after": "show_coverage",
+            "reason": "The saved configuration is part of the final coverage review."
+          },
+          {
+            "before": "approve_start",
+            "after": "dispatch_subagents",
+            "reason": "No subagent is launched before the second approval."
+          },
+          {
+            "before": "dispatch_subagents",
+            "after": "join_subagents",
+            "reason": "The parent waits for every dispatched handle before integrating results."
+          }
+        ],
+        "terminal_state": "goal_started"
       }
     }
   ]
