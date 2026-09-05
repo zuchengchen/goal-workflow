@@ -18,7 +18,7 @@ usage() {
     "" \
     "Options:" \
     "  --dest PATH  Destination (default: \${CODEX_HOME:-\$HOME/.codex}/skills/goal-workflow)" \
-    "  --replace    Transactionally replace an installation and retain a backup" \
+    "  --replace    Replace an existing installation without retaining a backup" \
     "  -h, --help   Show this help"
 }
 
@@ -109,19 +109,19 @@ if [[ -e "$DEST" && $REPLACE -eq 1 ]]; then
 fi
 
 STAGE_ROOT=""
-BACKUP_PATH=""
+OLD_PATH=""
 OLD_MOVED=0
-COMMITTED=0
 cleanup() {
   local status=$?
   trap - EXIT
-  if [[ $status -ne 0 && $OLD_MOVED -eq 1 && $COMMITTED -eq 0 ]]; then
-    if [[ ! -e "$DEST" && -e "$BACKUP_PATH" ]]; then
-      if ! rename_path "$BACKUP_PATH" "$DEST"; then
-        printf 'ERROR: install failed and rollback also failed; recover from %s\n' "$BACKUP_PATH" >&2
+  if [[ $status -ne 0 && $OLD_MOVED -eq 1 ]]; then
+    if [[ -e "$DEST" ]]; then
+      rm -rf "$DEST"
+    fi
+    if [[ -e "$OLD_PATH" ]]; then
+      if ! rename_path "$OLD_PATH" "$DEST"; then
+        printf 'ERROR: install failed and rollback also failed; the previous installation is at %s\n' "$OLD_PATH" >&2
       fi
-    elif [[ -e "$BACKUP_PATH" ]]; then
-      printf 'ERROR: install failed after backup; recover the previous installation from %s\n' "$BACKUP_PATH" >&2
     fi
   fi
   if [[ -n "$STAGE_ROOT" && -d "$STAGE_ROOT" ]]; then
@@ -139,21 +139,20 @@ cp -R "$SOURCE_DIR/." "$STAGED_SKILL/"
 python3 "$VALIDATOR" --skill-dir "$STAGED_SKILL" --installed-only >/dev/null
 
 if [[ -e "$DEST" ]]; then
-  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-  BACKUP_PATH="$DEST_PARENT/goal-workflow.backup.$timestamp.$$"
+  OLD_PATH="$DEST_PARENT/.goal-workflow.replace.$$"
   suffix=0
-  while [[ -e "$BACKUP_PATH" ]]; do
+  while [[ -e "$OLD_PATH" || -L "$OLD_PATH" ]]; do
     suffix=$((suffix + 1))
-    BACKUP_PATH="$DEST_PARENT/goal-workflow.backup.$timestamp.$$.${suffix}"
+    OLD_PATH="$DEST_PARENT/.goal-workflow.replace.$$.${suffix}"
   done
-  rename_path "$DEST" "$BACKUP_PATH"
+  rename_path "$DEST" "$OLD_PATH"
   OLD_MOVED=1
 fi
 
 rename_path "$STAGED_SKILL" "$DEST"
-COMMITTED=1
+if [[ -n "$OLD_PATH" ]]; then
+  rm -rf "$OLD_PATH"
+  OLD_MOVED=0
+fi
 
 printf 'Installed goal-workflow at %s\n' "$DEST"
-if [[ -n "$BACKUP_PATH" ]]; then
-  printf 'Previous installation retained at %s\n' "$BACKUP_PATH"
-fi

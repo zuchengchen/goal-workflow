@@ -54,9 +54,15 @@ python3 "$VALIDATOR" --skill-dir "$DEST" --installed-only >/dev/null
 
 shopt -s nullglob
 backups=("$CODEX_HOME/skills"/goal-workflow.backup.*)
+replacements=("$CODEX_HOME/skills"/.goal-workflow.replace.*)
 shopt -u nullglob
-if [[ ${#backups[@]} -ne 1 || ! -f "${backups[0]}/local-update-marker" ]]; then
-  printf 'ERROR: --replace did not retain the previous installation as a backup\n' >&2
+if [[ ${#backups[@]} -ne 0 || ${#replacements[@]} -ne 0 ]]; then
+  printf 'ERROR: --replace left a backup or replacement directory behind\n' >&2
+  exit 1
+fi
+entries=("$CODEX_HOME/skills"/*)
+if [[ ${#entries[@]} -ne 1 || "${entries[0]}" != "$DEST" ]]; then
+  printf 'ERROR: update left more than the single goal-workflow skill directory\n' >&2
   exit 1
 fi
 

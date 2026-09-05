@@ -8,24 +8,27 @@ $goal-workflow 重构这个项目的认证模块
 
 它适合目标模糊、存在多种方案，或需要明确范围、风险、验证、发布与停止条件的任务。skill 自带目标质量检查和方案探索流程，不依赖外部 `$define-goal` 或 `$brainstorming` skill，也没有 npm、pip 等包管理器依赖。
 
-## 安装
+## 安装和更新
 
-canonical moving-source 地址（分支随 `master` 更新）：
-
-```text
-https://github.com/zuchengchen/goal-workflow/tree/master/skills/goal-workflow
-```
-
-发布 tag 后，推荐在 Codex 中固定安装当前版本：
+统一使用仓库根 URL，让 Codex 只注册一个 `goal-workflow` skill：
 
 ```text
-使用 $skill-installer 安装：
-https://github.com/zuchengchen/goal-workflow/tree/v0.2.0/skills/goal-workflow
+安装 skill https://github.com/zuchengchen/goal-workflow
 ```
 
-当前 source 版本为 `0.2.0`。tag 尚未发布时应把 URL 中的 ref 换成实际存在的完整 commit SHA；只有确实希望跟随最新提交时才使用上面的 `master` URL。安装器写入 `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow`，遇到同名目录会停止，不会覆盖。
+更新同一个安装，不保留旧目录备份：
 
-手动安装、项目级复制、版本固定、验证、更新、卸载、同名冲突和 0.2.0 迁移步骤统一见 [INSTALL.md](INSTALL.md)。
+```text
+更新 skill https://github.com/zuchengchen/goal-workflow
+```
+
+两条命令都应在 Codex 中交给 `$skill-installer` 执行。不要再使用
+`/tree/.../skills/goal-workflow` 这种 nested URL，也不要同时安装到用户级、项目级和
+`$HOME/.agents/skills/`。唯一推荐的用户级目标是
+`${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow`；更新时只替换这个目录，不留下
+`*.backup.*` 或第二个 `goal-workflow` 目录。更新完成后重启 Codex，使会话重新加载唯一副本。
+
+当前 source 版本为 `0.2.0`。手动 clone、项目级复制、验证、卸载、重复副本清理和迁移步骤统一见 [INSTALL.md](INSTALL.md)。
 
 ## 工作流摘要
 
@@ -68,6 +71,8 @@ goal-workflow/
 └── LICENSE
 ```
 
-新安装应始终使用 `skills/goal-workflow/`。根目录兼容镜像由验证脚本强制与 canonical 内容一致，仅用于帮助 0.1.x Git 安装平滑迁移，不应作为新安装入口。
+仓库内的可安装内容仍由 `skills/goal-workflow/` 维护，根目录 `SKILL.md` 和 `agents/`
+是兼容镜像。对 Codex 安装器只使用仓库根 URL；安装器应将其发布为唯一的
+`goal-workflow` 目录，而不是同时注册根镜像和 nested canonical 目录。
 
 发布历史见 [CHANGELOG.md](CHANGELOG.md)。

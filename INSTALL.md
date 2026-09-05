@@ -7,19 +7,19 @@
 | 项目 | 值 |
 | --- | --- |
 | 仓库 | `https://github.com/zuchengchen/goal-workflow` |
-| canonical URL | `https://github.com/zuchengchen/goal-workflow/tree/master/skills/goal-workflow` |
+| 安装/更新 URL | `https://github.com/zuchengchen/goal-workflow` |
 | moving ref | `master` |
 | 仓库内精确 path | `skills/goal-workflow` |
 | skill 名称 | `goal-workflow` |
 | 安装器默认目标 | `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow` |
 
-canonical URL 同时编码了精确 ref 和 path。不要只把仓库根 URL 交给安装器，也不要依赖安装器默认的 `main` 分支；本仓库的 moving ref 是 `master`，canonical 安装路径不再是仓库根。
+Codex 安装器统一接收仓库根 URL，并从根目录兼容镜像发布唯一的 `goal-workflow` skill。仓库内部的实际维护源仍是 `skills/goal-workflow/`；不要再把 nested path URL 交给安装器，也不要依赖安装器默认的 `main` 分支。本仓库的 moving ref 是 `master`。
 
-为保证可复现，正式环境和团队配置应优先把 URL 中的 `master` 替换为已发布 tag（当前 source 版本 `0.2.0` 发布后对应 `v0.2.0`）或完整 commit SHA：
+为保证可复现，正式环境和团队配置可以把仓库根 URL 替换为已发布 tag 或完整 commit SHA：
 
 ```text
-https://github.com/zuchengchen/goal-workflow/tree/v0.2.0/skills/goal-workflow
-https://github.com/zuchengchen/goal-workflow/tree/<full-commit-sha>/skills/goal-workflow
+https://github.com/zuchengchen/goal-workflow/tree/v0.2.0
+https://github.com/zuchengchen/goal-workflow/tree/<full-commit-sha>
 ```
 
 只有确实希望自动跟随最新提交时才使用 `master`。版本 tag 必须已经发布；发布前请固定到实际存在的完整 commit SHA。
@@ -42,38 +42,40 @@ git --version
 
 ## 方法一：使用 Codex 安装器
 
-发布 tag 后，推荐固定安装当前版本：
+安装和更新都使用同一个仓库根 URL：
 
 ```text
 使用 $skill-installer 安装这个 skill：
-https://github.com/zuchengchen/goal-workflow/tree/v0.2.0/skills/goal-workflow
+安装 skill https://github.com/zuchengchen/goal-workflow
+更新 skill https://github.com/zuchengchen/goal-workflow
 ```
 
-tag 尚未发布时，把 `v0.2.0` 换成实际存在的完整 commit SHA。只有确实希望跟随最新提交时，才改用 canonical moving-source URL：
+把这两条命令交给 `$skill-installer` 在 Codex 中执行。若要固定版本，将根 URL 中的 ref 替换为已存在的 tag 或完整 commit SHA；不要改成 nested `skills/goal-workflow` URL：
 
 ```text
-https://github.com/zuchengchen/goal-workflow/tree/master/skills/goal-workflow
+https://github.com/zuchengchen/goal-workflow/tree/v0.2.0
 ```
 
 安装器从 URL 得到：
 
 - 仓库：`zuchengchen/goal-workflow`
 - ref：版本 tag、完整 commit SHA 或 moving ref `master`
-- path：`skills/goal-workflow`
+- 发布入口：仓库根目录的兼容镜像
 - 目标：`${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow`
 
-安装器不会覆盖已有同名目录。如果目标已经存在，先按“同名冲突”一节检查或备份，再执行安装。
+安装命令只创建目标目录；更新命令验证目标身份后直接替换同一个目录，不保留备份。不要同时把相同 skill 安装到 `$HOME/.agents/skills/goal-workflow` 或项目级 `.agents/skills/goal-workflow`，否则 Codex 可能看到多个来源。
+
+仓库根 URL 是唯一公开安装入口；固定版本也只改变根 URL 的 ref，不改变 path。
 
 安装完成后启动新的 Codex 会话。已打开的会话可能仍保留旧的 skill 上下文。
 
 ## 方法二：手动 clone 后复制到用户目录
 
-下面的命令默认固定到当前 release tag。tag 尚未发布时，把 `ref` 改为实际存在的完整 commit SHA；只有确实希望跟随最新提交时才设为 `master`。
+下面的命令从仓库根 clone，再从维护源 `skills/goal-workflow/` 发布到唯一用户级目标。更新时复用同一个目标，不保留备份。
 
 ```bash
 install_root="${CODEX_HOME:-$HOME/.codex}/skills"
 dest="$install_root/goal-workflow"
-ref="v0.2.0"
 tmp_dir="$(mktemp -d)"
 source_dir="$tmp_dir/goal-workflow"
 
@@ -82,35 +84,23 @@ cleanup() {
 }
 trap cleanup EXIT
 
-test ! -e "$dest" || {
-  echo "目标已存在：$dest" >&2
-  echo "请先检查、备份或按更新步骤处理。" >&2
-  exit 1
-}
-
 git clone https://github.com/zuchengchen/goal-workflow.git "$source_dir"
-git -C "$source_dir" checkout --detach "$ref"
-"$source_dir/scripts/install-local.sh" --dest "$dest"
+git -C "$source_dir" checkout --detach master
+"$source_dir/scripts/install-local.sh" --dest "$dest" --replace
 ```
 
-固定到 commit 时必须使用完整 SHA：
-
-```bash
-ref="0123456789abcdef0123456789abcdef01234567"
-```
-
-在主命令块执行前，把示例 SHA 替换为准备安装的真实 40 位 commit SHA。若要保留一个正常 clone 作为后续更新源，请使用固定路径代替临时目录并省略清理命令。安装目录本身只包含 canonical skill 文件，不应包含仓库根 README、历史 goal 或 `.git`。
+若要固定版本，把 `git checkout --detach master` 替换为已存在的 tag 或完整 commit SHA。若要保留一个正常 clone 作为后续更新源，请使用固定路径代替临时目录并省略清理命令。安装目录本身只包含 canonical skill 文件，不应包含仓库根 README、历史 goal 或 `.git`。
 
 ## 方法三：复制到项目仓库
 
-项目级安装适合只在某个仓库中启用或由团队共同维护。先 clone 并检出所需版本：
+项目级安装会引入第二个 skill 来源，不属于本项目的推荐路径。若确实需要项目级安装，必须先卸载用户级副本，并始终只保留一个目标。先 clone 并检出所需版本：
 
 ```bash
 git clone https://github.com/zuchengchen/goal-workflow.git /path/to/goal-workflow-source
 git -C /path/to/goal-workflow-source checkout --detach v0.2.0
 ```
 
-然后用仓库自带的安全安装脚本把 canonical skill 复制到目标项目。脚本会验证 source 和目标路径、默认拒绝覆盖，并通过临时目录发布完整安装：
+然后用仓库自带的安装脚本把 canonical skill 复制到目标项目。脚本会验证 source 和目标路径，并在更新时直接替换，不保留备份：
 
 ```bash
 target_project="/path/to/target-project"
@@ -119,7 +109,7 @@ dest="$target_project/.agents/skills/goal-workflow"
 /path/to/goal-workflow-source/scripts/install-local.sh --dest "$dest"
 ```
 
-不要把整个 `goal-workflow` 仓库直接 clone 或作为 submodule 放到 `.agents/skills/goal-workflow` 作为新安装方案。0.2.x 的仓库根保留了与 canonical 内容一致的兼容镜像，旧安装仍能工作，但会携带仓库文档、测试和历史文件；新安装应只复制 `skills/goal-workflow/`，让安装目录仅包含运行所需内容。
+不要把整个 `goal-workflow` 仓库作为长期 `.agents/skills/goal-workflow` 安装，也不要与用户级目标并存。仓库根兼容镜像用于让根 URL 可被安装器识别；本地安装脚本仍只发布 `skills/goal-workflow/` 的运行文件。
 
 ## 从本地仓库直接复制
 
@@ -135,7 +125,7 @@ scripts/install-local.sh
 scripts/install-local.sh --dest "/path/to/target-project/.agents/skills/goal-workflow"
 ```
 
-脚本只接受名为 `goal-workflow` 且直接位于非根 `skills` 目录中的目标，避免写入错误位置。目标已存在时默认失败；需要更新时使用后文的 `--replace` 流程。
+脚本只接受名为 `goal-workflow` 且直接位于非根 `skills` 目录中的目标，避免写入错误位置。目标已存在时使用 `--replace` 直接更新，不创建持久备份。
 
 ## 验证安装
 
@@ -164,7 +154,7 @@ $goal-workflow 把这个任务整理成可执行 Goal
 
 ## 同名冲突
 
-安装器发现 `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow` 已存在时会停止。不要直接覆盖或把两个版本合并到同一目录，否则可能留下已经删除的旧文件。
+安装器只管理 `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow` 这一份用户级副本。更新时验证目标身份并直接替换，不创建或保留备份目录。
 
 先确认现有目录来源：
 
@@ -174,32 +164,31 @@ find "$dest" -maxdepth 2 -type f -print
 git -C "$dest" remote -v 2>/dev/null || true
 ```
 
-需要保留时先重命名备份：
+发现旧副本时不要重命名成备份；确认它是本 skill 后直接删除，再执行唯一的安装命令：
 
 ```bash
 dest="${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow"
-backup="${dest}.backup.$(date +%Y%m%d%H%M%S)"
-mv "$dest" "$backup"
+rm -rf -- "$dest"
 ```
 
-然后重新安装并验证。确认新版本工作正常后，再由你决定是否删除备份。
+然后重新安装并验证。完成后只保留 `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow`。
 
-项目级 `.agents/skills/goal-workflow` 采用同样策略。若用户级和项目级同时存在同名 skill，优先保留单一、明确的来源，避免不同版本随启动目录变化。
+项目级 `.agents/skills/goal-workflow` 和 `$HOME/.agents/skills/goal-workflow` 都是重复来源。不要与用户级副本并存；若存在，确认用途后删除其中的 skill 副本。
 
 ## 更新
 
 ### 安装器或复制安装
 
-保留 source checkout 时，优先使用 transactional replace。脚本会验证现有 skill 身份、把新版本安装到 staging、保留旧目录备份，并在发布失败时尝试恢复：
+保留 source checkout 时，使用直接替换。脚本会验证现有 skill 身份、先校验 staging，再替换唯一目标目录，不保留旧目录备份：
 
 ```bash
 dest="${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow"
 /path/to/goal-workflow-source/scripts/install-local.sh --dest "$dest" --replace
 ```
 
-脚本会打印保留的备份路径。验证通过后重启 Codex，再由你决定是否删除备份。
+脚本不会创建或打印备份路径。验证通过后重启 Codex，使会话只加载更新后的唯一副本。
 
-如果只有 Codex 安装器而没有 source checkout，则先按“同名冲突”一节重命名旧目录，再按“方法一”安装新的固定版本；不要在旧目录上增量覆盖。
+如果只有 Codex 安装器而没有 source checkout，直接再次执行“方法一”的更新命令；若安装器拒绝已有目标，先删除已确认的唯一用户级目录，再执行更新，不要创建备份。
 
 项目级安装同理，只需把 `dest` 改为：
 
@@ -225,7 +214,7 @@ git -C /path/to/goal-workflow-source pull --ff-only origin master
 
 ## 从 0.1.x 仓库根安装迁移
 
-0.1.x 允许把整个仓库根直接安装成 skill。0.2.0 起，canonical skill 位于 `skills/goal-workflow/`。0.2.x 暂时保留受自动校验的根目录兼容镜像，因此旧 Git 安装执行 `git pull` 后仍可工作；但它不是长期安装接口，仍应迁移到只包含 canonical skill 的新目录。
+0.1.x 允许把整个仓库根直接安装成 skill。现在仓库根 URL 仍是唯一公开安装入口，内部维护源位于 `skills/goal-workflow/`。迁移时只保留一个用户级安装目录，不保留旧目录备份。
 
 常见旧目录包括：
 
@@ -239,19 +228,14 @@ $HOME/.agents/skills/goal-workflow
 
 ```bash
 new_dest="${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow"
-timestamp="$(date +%Y%m%d%H%M%S)"
-
-if [ -e "$new_dest" ]; then
-  mv "$new_dest" "${new_dest}.pre-0.2.0.$timestamp"
-fi
-
 legacy_dest="$HOME/.agents/skills/goal-workflow"
-if [ "$legacy_dest" != "$new_dest" ] && [ -e "$legacy_dest" ]; then
-  mv "$legacy_dest" "${legacy_dest}.pre-0.2.0.$timestamp"
+
+if [ -e "$legacy_dest" ] && [ "$legacy_dest" != "$new_dest" ]; then
+  rm -rf -- "$legacy_dest"
 fi
 ```
 
-随后使用 canonical URL 安装 0.2.0，并按“验证安装”检查。确认新版本工作正常后，再删除旧目录备份。旧 Git clone 也可以先更新并作为 source 使用，但最终安装目录应只复制 `skills/goal-workflow/.`。项目级旧安装同样先重命名备份，再复制到全新的 `.agents/skills/goal-workflow/`。
+随后使用仓库根 URL 更新，并按“验证安装”检查。旧 Git clone 不作为 Codex skill 来源；项目级旧安装也应直接删除，确保最后只存在用户级目标目录。
 
 ### Goal 文件位置迁移
 
@@ -321,13 +305,13 @@ rm -rf -- "$dest"
 
 ### 安装器寻找 `main` 或找不到 `SKILL.md`
 
-确认使用的是完整 canonical URL，而不是仓库根 URL：
+确认使用的是仓库根 URL，而不是 nested path URL：
 
 ```text
-https://github.com/zuchengchen/goal-workflow/tree/master/skills/goal-workflow
+https://github.com/zuchengchen/goal-workflow
 ```
 
-其中 ref 是 `master`，path 是 `skills/goal-workflow`。
+固定版本时只把仓库根 URL 的 ref 改成 tag 或完整 commit SHA。
 
 ### `$goal-workflow` 没有出现
 
@@ -343,7 +327,7 @@ codex features enable goals
 
 ### 更新后仍看到旧行为
 
-检查是否同时存在 `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow`、`$HOME/.agents/skills/goal-workflow` 和项目级 `.agents/skills/goal-workflow`。移除或备份重复来源，并启动新会话。
+检查是否同时存在 `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow`、`$HOME/.agents/skills/goal-workflow` 和项目级 `.agents/skills/goal-workflow`。只保留 `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow`，删除其他已确认的 `goal-workflow` 副本，然后重启新会话；不要重命名成备份。
 
 ### Goal 启动后显示 `Waiting for agents`
 
