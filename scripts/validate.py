@@ -826,6 +826,7 @@ def validate_repository(root: Path, checks: Checks) -> None:
         "validate.sh",
         "install-local.sh",
         "uninstall-local.sh",
+        "uninstall-installed-skill.py",
         "smoke-install.sh",
         "update-installed-skill.py",
         "smoke-update.py",
@@ -847,6 +848,8 @@ def validate_repository(root: Path, checks: Checks) -> None:
         for command in (
             "scripts/validate.sh",
             "scripts/smoke-install.sh",
+            "tests/mock_runtime.py",
+            "tests/updater_helpers.py",
             "quick_validate.py",
             "git diff --check",
         ):

@@ -62,16 +62,16 @@ git --version
 更新 skill https://github.com/zuchengchen/goal-workflow
 ```
 
-在 shell 中，先 clone 一份 source checkout，再调用项目更新器。更新时加上
-`--prune-duplicates`，它只删除能确认身份的其他可见副本，从而保证 Codex 最终只
-看到用户级目标这一份：
+在 shell 中，先 clone 一份 source checkout，再调用项目更新器。更新器默认只删除能
+确认身份的其他可见副本，从而保证 Codex 最终只看到用户级目标这一份；如果需要保守
+模式，可显式传入 `--keep-duplicates`：
 
 ```bash
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf -- "$tmp_dir"' EXIT
 git clone --depth 1 https://github.com/zuchengchen/goal-workflow "$tmp_dir/goal-workflow"
 python3 "$tmp_dir/goal-workflow/scripts/update-installed-skill.py" \
-  --source-dir "$tmp_dir/goal-workflow" --prune-duplicates
+  --source-dir "$tmp_dir/goal-workflow"
 ```
 
 Windows PowerShell 使用等价流程。`python` 也可以替换为 `py -3`：
@@ -81,7 +81,7 @@ $source_dir = Join-Path $env:TEMP ("goal-workflow-" + [guid]::NewGuid())
 git clone --depth 1 https://github.com/zuchengchen/goal-workflow $source_dir
 try {
     python (Join-Path $source_dir "scripts/update-installed-skill.py") `
-        --source-dir $source_dir --prune-duplicates
+        --source-dir $source_dir
 } finally {
     Remove-Item -Recurse -Force $source_dir
 }
@@ -103,10 +103,24 @@ https://github.com/zuchengchen/goal-workflow/tree/v0.2.0
 
 安装命令只创建目标目录；更新命令验证目标身份后直接替换同一个目录，不保留备份。
 不要同时把相同 skill 安装到 `$HOME/.agents/skills/goal-workflow` 或项目级
-`.agents/skills/goal-workflow`；`--prune-duplicates` 会清理这类已确认的重复来源。
+`.agents/skills/goal-workflow`；更新器默认会清理这类已确认的重复来源。若要保留它们，
+使用 `--keep-duplicates`，但这会放弃“只保留一份”的保证。
 
 仓库根 URL 是唯一公开安装入口；固定版本也只改变根 URL 的 ref，不改变 path。更新器
 不修改 Codex 的系统 skill-installer。
+
+对生产或团队部署，建议使用完整 commit SHA，并要求更新器拒绝 moving ref：
+
+```bash
+python3 /path/to/goal-workflow-source/scripts/update-installed-skill.py \
+  --url https://github.com/zuchengchen/goal-workflow \
+  --ref <full-commit-sha> --require-immutable-ref
+```
+
+更新器不会执行下载仓库中的 Python 脚本；它只读取并检查 canonical bundle 的结构、
+frontmatter 和 agent metadata。下载采用分块读取、64 MiB 大小上限和有限重试。更新过程
+使用跨平台锁；异常中断后的 staging/replacement 残留会在锁内恢复或清理，无法确认身份
+的残留会停止并要求人工检查。
 
 安装完成后启动新的 Codex 会话。已打开的会话可能仍保留旧的 skill 上下文。
 
@@ -129,7 +143,7 @@ trap cleanup EXIT
 git clone https://github.com/zuchengchen/goal-workflow.git "$source_dir"
 git -C "$source_dir" checkout --detach master
 python3 "$source_dir/scripts/update-installed-skill.py" \
-  --source-dir "$source_dir" --dest "$dest" --prune-duplicates
+  --source-dir "$source_dir" --dest "$dest"
 ```
 
 若要固定版本，把 `git checkout --detach master` 替换为已存在的 tag 或完整 commit SHA。若要保留一个正常 clone 作为后续更新源，请使用固定路径代替临时目录并省略清理命令。安装目录本身只包含 canonical skill 文件，不应包含仓库根 README、历史 goal 或 `.git`。
@@ -178,7 +192,7 @@ scripts/install-local.sh --dest "/path/to/target-project/.agents/skills/goal-wor
 Windows 原生环境从当前仓库安装或更新时，使用：
 
 ```powershell
-python scripts/update-installed-skill.py --source-dir . --prune-duplicates
+python scripts/update-installed-skill.py --source-dir .
 ```
 
 ## 验证安装
@@ -209,8 +223,8 @@ $goal-workflow 把这个任务整理成可执行 Goal
 ## 同名冲突
 
 项目更新器只管理 `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow` 这一份用户级副本。
-更新时验证目标身份并直接替换，不创建或保留备份目录；使用 `--prune-duplicates` 清理
-其他可见的、已确认的同名副本。
+更新时验证目标身份并直接替换，不创建或保留备份目录；默认清理其他可见的、已确认的
+同名副本。使用 `--keep-duplicates` 可关闭自动清理。
 
 先确认现有目录来源：
 
@@ -242,7 +256,7 @@ rm -rf -- "$dest"
 ```bash
 dest="${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow"
 python3 /path/to/goal-workflow-source/scripts/update-installed-skill.py \
-  --source-dir /path/to/goal-workflow-source --dest "$dest" --prune-duplicates
+  --source-dir /path/to/goal-workflow-source --dest "$dest"
 ```
 
 脚本不会创建或打印备份路径。验证通过后重启 Codex，使会话只加载更新后的唯一副本。
@@ -316,20 +330,23 @@ git mv path/to/existing-goal-file.md .codex/goals/
 
 ## 卸载
 
-有 source checkout 时，先 dry-run，再使用经过路径和 skill 身份校验的卸载脚本：
+有 source checkout 时，先 dry-run，再使用跨平台、经过路径和 skill 身份校验的卸载器：
 
 ```bash
-/path/to/goal-workflow-source/scripts/uninstall-local.sh --dry-run
-/path/to/goal-workflow-source/scripts/uninstall-local.sh
+python3 /path/to/goal-workflow-source/scripts/uninstall-installed-skill.py --dry-run
+python3 /path/to/goal-workflow-source/scripts/uninstall-installed-skill.py
 ```
 
 项目级安装传入明确目标：
 
 ```bash
 dest="/path/to/target-project/.agents/skills/goal-workflow"
-/path/to/goal-workflow-source/scripts/uninstall-local.sh --dest "$dest" --dry-run
-/path/to/goal-workflow-source/scripts/uninstall-local.sh --dest "$dest"
+python3 /path/to/goal-workflow-source/scripts/uninstall-installed-skill.py --dest "$dest" --dry-run
+python3 /path/to/goal-workflow-source/scripts/uninstall-installed-skill.py --dest "$dest"
 ```
+
+Windows PowerShell 将 `python3` 替换为 `python` 或 `py -3`。Linux/macOS 仍可使用
+`uninstall-local.sh` 这个 POSIX 辅助脚本。
 
 没有 source checkout 时，用户级手工回退为：
 

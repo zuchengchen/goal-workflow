@@ -28,15 +28,15 @@ $goal-workflow 重构这个项目的认证模块
 可能不同；本仓库用自己的 `scripts/update-installed-skill.py` 处理这两种请求。
 
 在 shell 中执行项目更新器的最小流程如下。它只替换
-`${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow`，不保留备份；`--prune-duplicates`
-只会删除已确认是本 skill 的其他可见副本：
+`${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow`，不保留备份。更新器默认只删除已
+确认是本 skill 的其他可见副本；需要保守模式时使用 `--keep-duplicates`：
 
 ```bash
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf -- "$tmp_dir"' EXIT
 git clone --depth 1 https://github.com/zuchengchen/goal-workflow "$tmp_dir/goal-workflow"
 python3 "$tmp_dir/goal-workflow/scripts/update-installed-skill.py" \
-  --source-dir "$tmp_dir/goal-workflow" --prune-duplicates
+  --source-dir "$tmp_dir/goal-workflow"
 ```
 
 Windows 原生环境使用 PowerShell 和 Python 3.10+，不需要 Bash：
@@ -46,7 +46,7 @@ $source_dir = Join-Path $env:TEMP ("goal-workflow-" + [guid]::NewGuid())
 git clone --depth 1 https://github.com/zuchengchen/goal-workflow $source_dir
 try {
     python (Join-Path $source_dir "scripts/update-installed-skill.py") `
-        --source-dir $source_dir --prune-duplicates
+        --source-dir $source_dir
 } finally {
     Remove-Item -Recurse -Force $source_dir
 }
@@ -56,6 +56,9 @@ try {
 `%USERPROFILE%\.codex\skills\goal-workflow`）；更新完成后
 重启 Codex，使会话重新加载唯一副本。完整的固定版本、重复副本和迁移步骤见
 [INSTALL.md](INSTALL.md)。
+
+生产部署可用完整 commit SHA，并传入 `--require-immutable-ref`，避免意外跟随 moving
+branch。更新器本身不执行下载仓库中的脚本，且具备大小限制、有限重试、并发锁和中断恢复。
 
 当前 source 版本为 `0.2.0`。手动 clone、项目级复制、验证、卸载、重复副本清理和迁移步骤统一见 [INSTALL.md](INSTALL.md)。
 

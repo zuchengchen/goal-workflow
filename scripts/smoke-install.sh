@@ -34,19 +34,16 @@ export HOME="$TMP_ROOT/home"
 DUPLICATE="$HOME/.agents/skills/goal-workflow"
 mkdir -p "$(dirname "$DUPLICATE")"
 cp -R "$DEST" "$DUPLICATE"
-if "$UPDATER" --source-dir "$REPO_ROOT" >/dev/null 2>&1; then
-  printf 'ERROR: updater ignored a duplicate goal-workflow installation\n' >&2
+"$UPDATER" --source-dir "$REPO_ROOT" --keep-duplicates >/dev/null
+test -e "$DUPLICATE"
+"$UPDATER" --source-dir "$REPO_ROOT" >/dev/null
+if [[ -e "$DUPLICATE" ]]; then
+  printf 'ERROR: updater did not prune a duplicate goal-workflow installation\n' >&2
   exit 1
 fi
-"$UPDATER" --source-dir "$REPO_ROOT" --prune-duplicates >/dev/null
-test ! -e "$DUPLICATE"
 test -f "$DEST/SKILL.md"
 ln -s "$DEST" "$DUPLICATE"
-if "$UPDATER" --source-dir "$REPO_ROOT" >/dev/null 2>&1; then
-  printf 'ERROR: updater ignored a duplicate goal-workflow symlink\n' >&2
-  exit 1
-fi
-"$UPDATER" --source-dir "$REPO_ROOT" --prune-duplicates >/dev/null
+"$UPDATER" --source-dir "$REPO_ROOT" >/dev/null
 test ! -e "$DUPLICATE"
 test -f "$DEST/SKILL.md"
 
@@ -86,6 +83,7 @@ if [[ ${#backups[@]} -ne 0 || ${#replacements[@]} -ne 0 ]]; then
   printf 'ERROR: --replace left a backup or replacement directory behind\n' >&2
   exit 1
 fi
+test ! -e "$CODEX_HOME/skills/.goal-workflow.update.lock"
 entries=("$CODEX_HOME/skills"/*)
 if [[ ${#entries[@]} -ne 1 || "${entries[0]}" != "$DEST" ]]; then
   printf 'ERROR: update left more than the single goal-workflow skill directory\n' >&2

@@ -26,6 +26,12 @@ jobs:
       - name: Smoke test local install lifecycle
         run: scripts/smoke-install.sh
 
+      - name: Test subagent runtime contract
+        run: python3 tests/mock_runtime.py
+
+      - name: Test updater helper contract
+        run: python3 tests/updater_helpers.py
+
       - name: Run system quick validator when available
         shell: bash
         run: |
@@ -69,3 +75,9 @@ jobs:
 
       - name: Smoke test platform-neutral updater
         run: python scripts/smoke-update.py
+
+      - name: Test platform-neutral updater helpers
+        run: python tests/updater_helpers.py
+
+      - name: Test mock subagent runtime contract
+        run: python tests/mock_runtime.py
