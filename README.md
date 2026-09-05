@@ -39,7 +39,21 @@ python3 "$tmp_dir/goal-workflow/scripts/update-installed-skill.py" \
   --source-dir "$tmp_dir/goal-workflow" --prune-duplicates
 ```
 
-唯一推荐的用户级目标是 `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow`；更新完成后
+Windows 原生环境使用 PowerShell 和 Python 3.10+，不需要 Bash：
+
+```powershell
+$source_dir = Join-Path $env:TEMP ("goal-workflow-" + [guid]::NewGuid())
+git clone --depth 1 https://github.com/zuchengchen/goal-workflow $source_dir
+try {
+    python (Join-Path $source_dir "scripts/update-installed-skill.py") `
+        --source-dir $source_dir --prune-duplicates
+} finally {
+    Remove-Item -Recurse -Force $source_dir
+}
+```
+
+唯一推荐的用户级目标是 `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow`（Windows 对应
+`%USERPROFILE%\.codex\skills\goal-workflow`）；更新完成后
 重启 Codex，使会话重新加载唯一副本。完整的固定版本、重复副本和迁移步骤见
 [INSTALL.md](INSTALL.md)。
 
@@ -68,7 +82,8 @@ python3 "$tmp_dir/goal-workflow/scripts/update-installed-skill.py" \
 
 - 支持 Agent Skills 的 Codex。
 - 可用的 Goal mode；如果 `/goal` 不可用，可运行 `codex features enable goals` 后重启 Codex。
-- 仅在 clone、更新或检出固定版本时需要 Git。
+- 项目更新器需要 Python 3.10+；仅在 clone、更新或检出固定版本时需要 Git。
+- Linux/macOS 的 `.sh` 文件是辅助脚本；Windows 原生环境使用 Python 更新器，不需要 Bash。
 
 ## 仓库布局
 

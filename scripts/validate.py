@@ -828,6 +828,7 @@ def validate_repository(root: Path, checks: Checks) -> None:
         "uninstall-local.sh",
         "smoke-install.sh",
         "update-installed-skill.py",
+        "smoke-update.py",
     )
     for script_name in scripts:
         path = root / "scripts" / script_name

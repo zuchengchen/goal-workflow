@@ -2,8 +2,8 @@
 """Install or update goal-workflow from the repository root URL.
 
 This updater is intentionally independent of Codex's system skill-installer. It
-downloads the repository, validates the canonical bundle, and delegates the
-no-persistent-backup replacement to the repository's install-local.sh script.
+downloads the repository, validates the canonical bundle, and performs the
+no-persistent-backup replacement in Python so it works without a POSIX shell.
 """
 
 from __future__ import annotations
@@ -96,16 +96,24 @@ def validate_source(source: Path) -> None:
     skill = source / "skills" / SKILL_NAME
     if not validator.is_file() or not skill.is_dir():
         raise UpdateError("source repository does not contain the canonical skill bundle")
-    result = subprocess.run(
-        [sys.executable, str(validator), "--skill-dir", str(skill), "--installed-only"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        check=False,
-    )
+
+    validate_skill(validator, skill, "--installed-only")
+
+
+def validate_skill(validator: Path, skill: Path, mode: str) -> None:
+    try:
+        result = subprocess.run(
+            [sys.executable, str(validator), "--skill-dir", str(skill), mode],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise UpdateError(f"could not run skill validation: {exc}") from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
-        raise UpdateError(f"canonical skill validation failed: {detail}")
+        raise UpdateError(f"skill validation failed: {detail}")
 
 
 def resolve_destination(raw_dest: str | None) -> Path:
@@ -120,7 +128,10 @@ def resolve_destination(raw_dest: str | None) -> Path:
         raise UpdateError(f"destination must be named {SKILL_NAME}: {candidate}")
     if candidate.is_symlink():
         raise UpdateError(f"refusing to update a symbolic-link destination: {candidate}")
-    parent = candidate.parent.resolve()
+    try:
+        parent = candidate.parent.resolve()
+    except OSError as exc:
+        raise UpdateError(f"could not resolve destination parent: {exc}") from exc
     if parent.name != "skills" or parent == parent.parent:
         raise UpdateError(f"destination must be directly inside a skills directory: {candidate}")
     return parent / SKILL_NAME
@@ -186,24 +197,86 @@ def prune_duplicates(paths: list[Path]) -> None:
             raise UpdateError(f"could not remove duplicate installation {path}: {exc}") from exc
 
 
-def run_install(source: Path, destination: Path) -> None:
-    installer = source / "scripts" / "install-local.sh"
-    if not installer.is_file():
-        raise UpdateError("source repository is missing scripts/install-local.sh")
+def path_exists(path: Path) -> bool:
+    return path.exists() or path.is_symlink()
+
+
+def remove_path(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path)
+
+
+def install_bundle(source: Path, destination: Path) -> None:
+    source_skill = source / "skills" / SKILL_NAME
+    validator = source / "scripts" / "validate.py"
+    if not source_skill.is_dir() or not validator.is_file():
+        raise UpdateError("source repository does not contain the canonical skill bundle")
+
+    destination_parent = destination.parent
     try:
-        result = subprocess.run(
-            ["bash", str(installer), "--dest", str(destination), "--replace"],
-            check=False,
+        destination_parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise UpdateError(f"could not create destination directory: {exc}") from exc
+    if destination.is_symlink():
+        raise UpdateError(f"refusing to update a symbolic-link destination: {destination}")
+    if path_exists(destination):
+        if not destination.is_dir():
+            raise UpdateError(f"destination exists but is not a directory: {destination}")
+        validate_skill(validator, destination, "--identity-only")
+
+    try:
+        stage_root = Path(
+            tempfile.mkdtemp(prefix=".goal-workflow.install.", dir=destination_parent)
         )
     except OSError as exc:
-        raise UpdateError(f"could not run the canonical skill replacement: {exc}") from exc
-    if result.returncode != 0:
-        raise UpdateError("the canonical skill replacement failed")
+        raise UpdateError(f"could not create staging directory: {exc}") from exc
+    staged_skill = stage_root / SKILL_NAME
+    old_path = destination_parent / f".goal-workflow.replace.{os.getpid()}"
+    suffix = 0
+    while path_exists(old_path):
+        suffix += 1
+        old_path = destination_parent / f".goal-workflow.replace.{os.getpid()}.{suffix}"
+
+    old_moved = False
+    try:
+        shutil.copytree(source_skill, staged_skill)
+        validate_skill(validator, staged_skill, "--installed-only")
+
+        if path_exists(destination):
+            os.rename(destination, old_path)
+            old_moved = True
+        os.rename(staged_skill, destination)
+        if old_moved:
+            remove_path(old_path)
+            old_moved = False
+    except (OSError, UpdateError) as exc:
+        if old_moved:
+            try:
+                if path_exists(destination):
+                    remove_path(destination)
+                os.rename(old_path, destination)
+                old_moved = False
+            except OSError as rollback_exc:
+                raise UpdateError(
+                    f"skill replacement failed and rollback failed; previous installation "
+                    f"is at {old_path}: {rollback_exc}"
+                ) from rollback_exc
+        if isinstance(exc, UpdateError):
+            raise
+        raise UpdateError(f"skill replacement failed: {exc}") from exc
+    finally:
+        if path_exists(stage_root):
+            remove_path(stage_root)
 
 
 def resolve_source(source_dir: str | None, url: str, ref: str | None, temp_dir: Path) -> Path:
     if source_dir:
-        source = Path(source_dir).expanduser().resolve()
+        try:
+            source = Path(source_dir).expanduser().resolve()
+        except OSError as exc:
+            raise UpdateError(f"could not resolve source directory: {exc}") from exc
         if not source.is_dir():
             raise UpdateError(f"source directory does not exist: {source}")
         return source
@@ -252,7 +325,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             source = resolve_source(args.source_dir, args.url, args.ref, Path(temp_dir))
             validate_source(source)
-            run_install(source, destination)
+            install_bundle(source, destination)
         except UpdateError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1

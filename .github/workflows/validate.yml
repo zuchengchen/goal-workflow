@@ -50,3 +50,22 @@ jobs:
         run: |
           empty_tree="$(git hash-object -t tree /dev/null)"
           git diff --check "$empty_tree" HEAD
+
+  cross-platform-updater:
+    name: Updater (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Smoke test platform-neutral updater
+        run: python scripts/smoke-update.py

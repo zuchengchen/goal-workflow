@@ -13,6 +13,10 @@
 | skill 名称 | `goal-workflow` |
 | 更新器默认目标 | `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow` |
 
+在 Windows 上，上表中的默认目标等价于
+`%USERPROFILE%\.codex\skills\goal-workflow`；也可以通过 PowerShell 的
+`$env:CODEX_HOME` 覆盖。Linux/macOS 使用 `$HOME/.codex` 规则。
+
 仓库根 URL 是本项目约定的安装/更新请求入口。仓库内部的实际维护源仍是
 `skills/goal-workflow/`；不要再把 nested path URL 交给任何安装器，也不要修改 Codex
 自带的 `skill-installer`。本项目提供 `scripts/update-installed-skill.py`，负责下载或
@@ -31,6 +35,10 @@ https://github.com/zuchengchen/goal-workflow/tree/<full-commit-sha>
 ## 前置条件
 
 需要支持 Agent Skills 的 Codex。skill 本身是自包含的，不依赖 `$define-goal`、`$brainstorming` 或任何 npm、pip、Go、Rust 包。
+
+项目更新器使用 Python 3.10 或更高版本，且不依赖 Bash；因此 Linux、macOS 和 Windows
+原生环境都可以执行更新器。Git 只用于从仓库取得 source checkout；如果已经有 checkout，
+可以直接使用 `--source-dir`。
 
 如果 `/goal` 不可用，启用 Goal mode 后重启 Codex：
 
@@ -64,6 +72,19 @@ trap 'rm -rf -- "$tmp_dir"' EXIT
 git clone --depth 1 https://github.com/zuchengchen/goal-workflow "$tmp_dir/goal-workflow"
 python3 "$tmp_dir/goal-workflow/scripts/update-installed-skill.py" \
   --source-dir "$tmp_dir/goal-workflow" --prune-duplicates
+```
+
+Windows PowerShell 使用等价流程。`python` 也可以替换为 `py -3`：
+
+```powershell
+$source_dir = Join-Path $env:TEMP ("goal-workflow-" + [guid]::NewGuid())
+git clone --depth 1 https://github.com/zuchengchen/goal-workflow $source_dir
+try {
+    python (Join-Path $source_dir "scripts/update-installed-skill.py") `
+        --source-dir $source_dir --prune-duplicates
+} finally {
+    Remove-Item -Recurse -Force $source_dir
+}
 ```
 
 若要固定版本，将 clone 后的 checkout 切换到已存在的 tag 或完整 commit SHA；不要改成
@@ -122,20 +143,25 @@ git clone https://github.com/zuchengchen/goal-workflow.git /path/to/goal-workflo
 git -C /path/to/goal-workflow-source checkout --detach v0.2.0
 ```
 
-然后用仓库自带的安装脚本把 canonical skill 复制到目标项目。脚本会验证 source 和目标路径，并在更新时直接替换，不保留备份：
+然后用跨平台项目更新器把 canonical skill 复制到目标项目。脚本会验证 source 和目标路径，
+并在更新时直接替换，不保留备份：
 
 ```bash
 target_project="/path/to/target-project"
 dest="$target_project/.agents/skills/goal-workflow"
 
-/path/to/goal-workflow-source/scripts/install-local.sh --dest "$dest"
+python3 /path/to/goal-workflow-source/scripts/update-installed-skill.py \
+  --source-dir /path/to/goal-workflow-source --dest "$dest"
 ```
+
+Linux/macOS 也可以使用仓库内的 `install-local.sh` POSIX 辅助脚本；Windows 原生环境请
+使用上面的 Python 更新器。
 
 不要把整个 `goal-workflow` 仓库作为长期 `.agents/skills/goal-workflow` 安装，也不要与用户级目标并存。仓库根兼容镜像用于保留根 URL 的兼容入口；本地安装脚本仍只发布 `skills/goal-workflow/` 的运行文件。
 
 ## 从本地仓库直接复制
 
-如果当前工作目录就是本仓库根，可安装到用户目录：
+如果当前工作目录就是本仓库根，Linux/macOS 可使用 POSIX 辅助脚本安装到用户目录：
 
 ```bash
 scripts/install-local.sh
@@ -148,6 +174,12 @@ scripts/install-local.sh --dest "/path/to/target-project/.agents/skills/goal-wor
 ```
 
 脚本只接受名为 `goal-workflow` 且直接位于非根 `skills` 目录中的目标，避免写入错误位置。目标已存在时使用 `--replace` 直接更新，不创建持久备份。
+
+Windows 原生环境从当前仓库安装或更新时，使用：
+
+```powershell
+python scripts/update-installed-skill.py --source-dir . --prune-duplicates
+```
 
 ## 验证安装
 

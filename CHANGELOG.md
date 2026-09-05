@@ -10,6 +10,7 @@
 - Goal 启动前的 investigating 阶段现在会询问是否启用 bounded parallel subagent，并在启用时分别记录运行时支持的模型和 reasoning depth；执行协议要求父 Goal 统一管理共享状态、合并和最终验证。
 - 安装和更新文档统一使用仓库根 URL；更新唯一用户级安装目录时不保留备份，并明确禁止同时注册多个 `goal-workflow` 副本。
 - 增加项目自带的 `scripts/update-installed-skill.py`，不修改 Codex 的系统 `skill-installer`，即可从仓库根 URL 或已有 checkout 校验并更新唯一用户级 skill；可选清理已确认的重复副本。
+- 项目更新器改为纯 Python 文件操作，并增加 Linux、macOS、Windows 三平台 smoke 测试；Windows 原生环境不再要求 Bash。
 
 ### Fixed
 
