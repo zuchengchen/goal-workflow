@@ -6,6 +6,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 INSTALLER="$SCRIPT_DIR/install-local.sh"
 UNINSTALLER="$SCRIPT_DIR/uninstall-local.sh"
 VALIDATOR="$SCRIPT_DIR/validate.py"
+UPDATER="$SCRIPT_DIR/update-installed-skill.py"
 CANONICAL="$REPO_ROOT/skills/goal-workflow"
 
 TMP_ROOT="$(mktemp -d)"
@@ -23,6 +24,31 @@ test -f "$DEST/SKILL.md"
 cmp "$CANONICAL/SKILL.md" "$DEST/SKILL.md"
 cmp "$CANONICAL/agents/openai.yaml" "$DEST/agents/openai.yaml"
 python3 "$VALIDATOR" --skill-dir "$DEST" --installed-only >/dev/null
+
+"$UPDATER" --source-dir "$REPO_ROOT" >/dev/null
+cmp "$CANONICAL/SKILL.md" "$DEST/SKILL.md"
+cmp "$CANONICAL/agents/openai.yaml" "$DEST/agents/openai.yaml"
+python3 "$VALIDATOR" --skill-dir "$DEST" --installed-only >/dev/null
+
+export HOME="$TMP_ROOT/home"
+DUPLICATE="$HOME/.agents/skills/goal-workflow"
+mkdir -p "$(dirname "$DUPLICATE")"
+cp -R "$DEST" "$DUPLICATE"
+if "$UPDATER" --source-dir "$REPO_ROOT" >/dev/null 2>&1; then
+  printf 'ERROR: updater ignored a duplicate goal-workflow installation\n' >&2
+  exit 1
+fi
+"$UPDATER" --source-dir "$REPO_ROOT" --prune-duplicates >/dev/null
+test ! -e "$DUPLICATE"
+test -f "$DEST/SKILL.md"
+ln -s "$DEST" "$DUPLICATE"
+if "$UPDATER" --source-dir "$REPO_ROOT" >/dev/null 2>&1; then
+  printf 'ERROR: updater ignored a duplicate goal-workflow symlink\n' >&2
+  exit 1
+fi
+"$UPDATER" --source-dir "$REPO_ROOT" --prune-duplicates >/dev/null
+test ! -e "$DUPLICATE"
+test -f "$DEST/SKILL.md"
 
 if "$INSTALLER" >/dev/null 2>&1; then
   printf 'ERROR: installer overwrote an existing destination without --replace\n' >&2

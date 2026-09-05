@@ -11,9 +11,13 @@
 | moving ref | `master` |
 | 仓库内精确 path | `skills/goal-workflow` |
 | skill 名称 | `goal-workflow` |
-| 安装器默认目标 | `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow` |
+| 更新器默认目标 | `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow` |
 
-Codex 安装器统一接收仓库根 URL，并从根目录兼容镜像发布唯一的 `goal-workflow` skill。仓库内部的实际维护源仍是 `skills/goal-workflow/`；不要再把 nested path URL 交给安装器，也不要依赖安装器默认的 `main` 分支。本仓库的 moving ref 是 `master`。
+仓库根 URL 是本项目约定的安装/更新请求入口。仓库内部的实际维护源仍是
+`skills/goal-workflow/`；不要再把 nested path URL 交给任何安装器，也不要修改 Codex
+自带的 `skill-installer`。本项目提供 `scripts/update-installed-skill.py`，负责下载或
+复用 source checkout、校验 canonical bundle、替换唯一用户级目标并按需清理重复副本。
+本仓库的 moving ref 是 `master`。
 
 为保证可复现，正式环境和团队配置可以把仓库根 URL 替换为已发布 tag 或完整 commit SHA：
 
@@ -40,38 +44,55 @@ codex features enable goals
 git --version
 ```
 
-## 方法一：使用 Codex 安装器
+## 方法一：使用项目更新器（推荐）
 
-安装和更新都使用同一个仓库根 URL：
+安装和更新都使用同一个仓库根 URL。这两行是给 Codex 的请求写法；实际执行时由本
+项目更新器完成，不需要改动 Codex 的系统安装器：
 
 ```text
-使用 $skill-installer 安装这个 skill：
 安装 skill https://github.com/zuchengchen/goal-workflow
 更新 skill https://github.com/zuchengchen/goal-workflow
 ```
 
-把这两条命令交给 `$skill-installer` 在 Codex 中执行。若要固定版本，将根 URL 中的 ref 替换为已存在的 tag 或完整 commit SHA；不要改成 nested `skills/goal-workflow` URL：
+在 shell 中，先 clone 一份 source checkout，再调用项目更新器。更新时加上
+`--prune-duplicates`，它只删除能确认身份的其他可见副本，从而保证 Codex 最终只
+看到用户级目标这一份：
+
+```bash
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf -- "$tmp_dir"' EXIT
+git clone --depth 1 https://github.com/zuchengchen/goal-workflow "$tmp_dir/goal-workflow"
+python3 "$tmp_dir/goal-workflow/scripts/update-installed-skill.py" \
+  --source-dir "$tmp_dir/goal-workflow" --prune-duplicates
+```
+
+若要固定版本，将 clone 后的 checkout 切换到已存在的 tag 或完整 commit SHA；不要改成
+nested `skills/goal-workflow` URL：
 
 ```text
 https://github.com/zuchengchen/goal-workflow/tree/v0.2.0
 ```
 
-安装器从 URL 得到：
+更新器从 URL 或 source checkout 得到：
 
 - 仓库：`zuchengchen/goal-workflow`
 - ref：版本 tag、完整 commit SHA 或 moving ref `master`
-- 发布入口：仓库根目录的兼容镜像
+- 发布入口：仓库内 `skills/goal-workflow/` 的 canonical bundle
 - 目标：`${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow`
 
-安装命令只创建目标目录；更新命令验证目标身份后直接替换同一个目录，不保留备份。不要同时把相同 skill 安装到 `$HOME/.agents/skills/goal-workflow` 或项目级 `.agents/skills/goal-workflow`，否则 Codex 可能看到多个来源。
+安装命令只创建目标目录；更新命令验证目标身份后直接替换同一个目录，不保留备份。
+不要同时把相同 skill 安装到 `$HOME/.agents/skills/goal-workflow` 或项目级
+`.agents/skills/goal-workflow`；`--prune-duplicates` 会清理这类已确认的重复来源。
 
-仓库根 URL 是唯一公开安装入口；固定版本也只改变根 URL 的 ref，不改变 path。
+仓库根 URL 是唯一公开安装入口；固定版本也只改变根 URL 的 ref，不改变 path。更新器
+不修改 Codex 的系统 skill-installer。
 
 安装完成后启动新的 Codex 会话。已打开的会话可能仍保留旧的 skill 上下文。
 
-## 方法二：手动 clone 后复制到用户目录
+## 方法二：保留 source clone 后重复更新
 
-下面的命令从仓库根 clone，再从维护源 `skills/goal-workflow/` 发布到唯一用户级目标。更新时复用同一个目标，不保留备份。
+下面的命令从仓库根 clone，再用项目更新器从维护源 `skills/goal-workflow/` 发布到唯一
+用户级目标。更新时复用同一个目标，不保留备份。
 
 ```bash
 install_root="${CODEX_HOME:-$HOME/.codex}/skills"
@@ -86,7 +107,8 @@ trap cleanup EXIT
 
 git clone https://github.com/zuchengchen/goal-workflow.git "$source_dir"
 git -C "$source_dir" checkout --detach master
-"$source_dir/scripts/install-local.sh" --dest "$dest" --replace
+python3 "$source_dir/scripts/update-installed-skill.py" \
+  --source-dir "$source_dir" --dest "$dest" --prune-duplicates
 ```
 
 若要固定版本，把 `git checkout --detach master` 替换为已存在的 tag 或完整 commit SHA。若要保留一个正常 clone 作为后续更新源，请使用固定路径代替临时目录并省略清理命令。安装目录本身只包含 canonical skill 文件，不应包含仓库根 README、历史 goal 或 `.git`。
@@ -109,7 +131,7 @@ dest="$target_project/.agents/skills/goal-workflow"
 /path/to/goal-workflow-source/scripts/install-local.sh --dest "$dest"
 ```
 
-不要把整个 `goal-workflow` 仓库作为长期 `.agents/skills/goal-workflow` 安装，也不要与用户级目标并存。仓库根兼容镜像用于让根 URL 可被安装器识别；本地安装脚本仍只发布 `skills/goal-workflow/` 的运行文件。
+不要把整个 `goal-workflow` 仓库作为长期 `.agents/skills/goal-workflow` 安装，也不要与用户级目标并存。仓库根兼容镜像用于保留根 URL 的兼容入口；本地安装脚本仍只发布 `skills/goal-workflow/` 的运行文件。
 
 ## 从本地仓库直接复制
 
@@ -154,7 +176,9 @@ $goal-workflow 把这个任务整理成可执行 Goal
 
 ## 同名冲突
 
-安装器只管理 `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow` 这一份用户级副本。更新时验证目标身份并直接替换，不创建或保留备份目录。
+项目更新器只管理 `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow` 这一份用户级副本。
+更新时验证目标身份并直接替换，不创建或保留备份目录；使用 `--prune-duplicates` 清理
+其他可见的、已确认的同名副本。
 
 先确认现有目录来源：
 
@@ -171,24 +195,28 @@ dest="${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow"
 rm -rf -- "$dest"
 ```
 
-然后重新安装并验证。完成后只保留 `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow`。
+然后重新运行项目更新器并验证。完成后只保留
+`${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow`。
 
 项目级 `.agents/skills/goal-workflow` 和 `$HOME/.agents/skills/goal-workflow` 都是重复来源。不要与用户级副本并存；若存在，确认用途后删除其中的 skill 副本。
 
 ## 更新
 
-### 安装器或复制安装
+### 项目更新器或复制安装
 
-保留 source checkout 时，使用直接替换。脚本会验证现有 skill 身份、先校验 staging，再替换唯一目标目录，不保留旧目录备份：
+保留 source checkout 时，使用项目更新器直接替换。脚本会验证 source 和现有 skill
+身份、先校验 staging，再替换唯一目标目录，不保留旧目录备份：
 
 ```bash
 dest="${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow"
-/path/to/goal-workflow-source/scripts/install-local.sh --dest "$dest" --replace
+python3 /path/to/goal-workflow-source/scripts/update-installed-skill.py \
+  --source-dir /path/to/goal-workflow-source --dest "$dest" --prune-duplicates
 ```
 
 脚本不会创建或打印备份路径。验证通过后重启 Codex，使会话只加载更新后的唯一副本。
 
-如果只有 Codex 安装器而没有 source checkout，直接再次执行“方法一”的更新命令；若安装器拒绝已有目标，先删除已确认的唯一用户级目录，再执行更新，不要创建备份。
+如果只有 Git 而没有 source checkout，重新 clone 后执行“方法一”的更新命令。无需
+修改 Codex 的系统安装器，也不要先创建备份目录。
 
 项目级安装同理，只需把 `dest` 改为：
 
@@ -303,7 +331,7 @@ rm -rf -- "$dest"
 
 ## 排错
 
-### 安装器寻找 `main` 或找不到 `SKILL.md`
+### 更新器寻找 `main` 或找不到 `SKILL.md`
 
 确认使用的是仓库根 URL，而不是 nested path URL：
 

@@ -22,11 +22,26 @@ $goal-workflow 重构这个项目的认证模块
 更新 skill https://github.com/zuchengchen/goal-workflow
 ```
 
-两条命令都应在 Codex 中交给 `$skill-installer` 执行。不要再使用
-`/tree/.../skills/goal-workflow` 这种 nested URL，也不要同时安装到用户级、项目级和
-`$HOME/.agents/skills/`。唯一推荐的用户级目标是
-`${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow`；更新时只替换这个目录，不留下
-`*.backup.*` 或第二个 `goal-workflow` 目录。更新完成后重启 Codex，使会话重新加载唯一副本。
+这两行是本项目约定的 Codex 请求。不要再使用 `/tree/.../skills/goal-workflow`
+这种 nested URL，也不要修改 Codex 自带的
+`skill-installer`。当前系统安装器对 GitHub 根 URL 的参数要求和已有目录更新策略
+可能不同；本仓库用自己的 `scripts/update-installed-skill.py` 处理这两种请求。
+
+在 shell 中执行项目更新器的最小流程如下。它只替换
+`${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow`，不保留备份；`--prune-duplicates`
+只会删除已确认是本 skill 的其他可见副本：
+
+```bash
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf -- "$tmp_dir"' EXIT
+git clone --depth 1 https://github.com/zuchengchen/goal-workflow "$tmp_dir/goal-workflow"
+python3 "$tmp_dir/goal-workflow/scripts/update-installed-skill.py" \
+  --source-dir "$tmp_dir/goal-workflow" --prune-duplicates
+```
+
+唯一推荐的用户级目标是 `${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow`；更新完成后
+重启 Codex，使会话重新加载唯一副本。完整的固定版本、重复副本和迁移步骤见
+[INSTALL.md](INSTALL.md)。
 
 当前 source 版本为 `0.2.0`。手动 clone、项目级复制、验证、卸载、重复副本清理和迁移步骤统一见 [INSTALL.md](INSTALL.md)。
 
@@ -72,7 +87,7 @@ goal-workflow/
 ```
 
 仓库内的可安装内容仍由 `skills/goal-workflow/` 维护，根目录 `SKILL.md` 和 `agents/`
-是兼容镜像。对 Codex 安装器只使用仓库根 URL；安装器应将其发布为唯一的
-`goal-workflow` 目录，而不是同时注册根镜像和 nested canonical 目录。
+是兼容镜像。项目更新器只从仓库根 URL 取得 source，再将 canonical bundle 发布为唯一的
+`goal-workflow` 目录，不会同时注册根镜像和 nested canonical 目录。
 
 发布历史见 [CHANGELOG.md](CHANGELOG.md)。
