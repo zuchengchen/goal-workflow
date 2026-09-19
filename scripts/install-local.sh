@@ -150,9 +150,14 @@ if [[ -e "$DEST" ]]; then
 fi
 
 rename_path "$STAGED_SKILL" "$DEST"
+# The new installation is committed; partial cleanup of the old directory
+# must not cause the exit trap to replace it with a damaged old installation.
+OLD_MOVED=0
 if [[ -n "$OLD_PATH" ]]; then
-  rm -rf "$OLD_PATH"
-  OLD_MOVED=0
+  if ! rm -rf "$OLD_PATH"; then
+    printf 'ERROR: new installation retained at %s, but old installation residue requires cleanup: %s\n' "$DEST" "$OLD_PATH" >&2
+    exit 1
+  fi
 fi
 
 printf 'Installed goal-workflow at %s\n' "$DEST"

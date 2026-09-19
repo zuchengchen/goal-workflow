@@ -79,5 +79,8 @@ jobs:
       - name: Test platform-neutral updater helpers
         run: python tests/updater_helpers.py
 
+      - name: Test updater safety and smoke isolation
+        run: python tests/updater_safety.py
+
       - name: Test mock subagent runtime contract
         run: python tests/mock_runtime.py

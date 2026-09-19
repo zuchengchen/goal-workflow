@@ -18,10 +18,12 @@ UNINSTALLER = ROOT / "scripts" / "uninstall-installed-skill.py"
 VALIDATOR = ROOT / "scripts" / "validate.py"
 
 
-def run_updater(*args: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+def run_updater(*args: str, env: dict[str, str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, str(UPDATER), *args],
-        cwd=ROOT,
+        # Ancestor directories can contain caller-owned skills even when cwd
+        # is temporary. Pruning is covered with explicit paths in updater_safety.
+        [sys.executable, str(UPDATER), "--keep-duplicates", *args],
+        cwd=cwd,
         env=env,
         text=True,
         check=False,
@@ -31,19 +33,22 @@ def run_updater(*args: str, env: dict[str, str]) -> subprocess.CompletedProcess[
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="goal-workflow-smoke-") as temp_dir:
         temp = Path(temp_dir)
-        home = temp / "home"
-        codex_home = temp / "codex-home"
+        test_user_dir = temp / "user"
+        test_codex_dir = temp / "codex-home"
+        test_project_dir = temp / "project"
+        test_user_dir.mkdir()
+        test_project_dir.mkdir()
         env = os.environ.copy()
         env.update(
             {
-                "CODEX_HOME": str(codex_home),
-                "HOME": str(home),
-                "USERPROFILE": str(home),
+                "CODEX_HOME": str(test_codex_dir),
+                "HOME": str(test_user_dir),
+                "USERPROFILE": str(test_user_dir),
             }
         )
-        destination = codex_home / "skills" / "goal-workflow"
+        destination = test_codex_dir / "skills" / "goal-workflow"
 
-        result = run_updater("--source-dir", str(ROOT), env=env)
+        result = run_updater("--source-dir", str(ROOT), env=env, cwd=test_project_dir)
         if result.returncode != 0:
             return result.returncode
         if not (destination / "SKILL.md").is_file():
@@ -65,17 +70,17 @@ def main() -> int:
         )
         holder = subprocess.Popen(
             [sys.executable, "-c", holder_code, str(ROOT), str(destination.parent)],
-            cwd=ROOT,
+            cwd=test_project_dir,
             env=env,
         )
         time.sleep(0.1)
-        result = run_updater("--source-dir", str(ROOT), env=env)
+        result = run_updater("--source-dir", str(ROOT), env=env, cwd=test_project_dir)
         holder.wait(timeout=10)
         if result.returncode != 0:
             raise RuntimeError("updater failed while waiting for the update lock")
 
         (destination / "stale-marker").write_text("stale\n", encoding="utf-8")
-        result = run_updater("--source-dir", str(ROOT), env=env)
+        result = run_updater("--source-dir", str(ROOT), env=env, cwd=test_project_dir)
         if result.returncode != 0:
             return result.returncode
         if (destination / "stale-marker").exists():
@@ -89,7 +94,7 @@ def main() -> int:
             f"from pathlib import Path\nPath({str(marker)!r}).write_text('bad')\n",
             encoding="utf-8",
         )
-        result = run_updater("--source-dir", str(malicious_source), env=env)
+        result = run_updater("--source-dir", str(malicious_source), env=env, cwd=test_project_dir)
         if result.returncode != 0 or marker.exists():
             raise RuntimeError("updater executed a source checkout validator")
 
@@ -99,22 +104,18 @@ def main() -> int:
         destination.rename(replacement)
         staging.mkdir(parents=True)
         (staging / "stale-marker").write_text("stale\n", encoding="utf-8")
-        result = run_updater("--source-dir", str(ROOT), env=env)
+        result = run_updater("--source-dir", str(ROOT), env=env, cwd=test_project_dir)
         if result.returncode != 0 or not (destination / "SKILL.md").is_file():
             raise RuntimeError("updater did not recover an interrupted replacement")
         if replacement.exists() or staging.parent.exists():
             raise RuntimeError("updater left interrupted replacement residue")
 
-        duplicate = home / ".agents" / "skills" / "goal-workflow"
+        duplicate = test_user_dir / ".agents" / "skills" / "goal-workflow"
         duplicate.parent.mkdir(parents=True)
         shutil.copytree(destination, duplicate)
-        result = run_updater("--source-dir", str(ROOT), "--keep-duplicates", env=env)
+        result = run_updater("--source-dir", str(ROOT), env=env, cwd=test_project_dir)
         if result.returncode != 0 or not duplicate.exists():
             raise RuntimeError("updater did not honor --keep-duplicates")
-
-        result = run_updater("--source-dir", str(ROOT), env=env)
-        if result.returncode != 0 or duplicate.exists():
-            raise RuntimeError("updater did not prune the validated duplicate by default")
 
         validation = subprocess.run(
             [
@@ -124,7 +125,7 @@ def main() -> int:
                 str(destination),
                 "--installed-only",
             ],
-            cwd=ROOT,
+            cwd=test_project_dir,
             env=env,
             check=False,
         )
@@ -133,7 +134,7 @@ def main() -> int:
 
         uninstall = subprocess.run(
             [sys.executable, str(UNINSTALLER)],
-            cwd=ROOT,
+            cwd=test_project_dir,
             env=env,
             check=False,
         )

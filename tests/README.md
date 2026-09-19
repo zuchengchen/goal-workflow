@@ -8,6 +8,14 @@ For the `verification_integrity` case, the harness must inspect the proposed ver
 
 The repository validator and CI currently check the JSON schema, required scenario coverage, action names, declared ordering constraints, and required verification-integrity markers. They do not run a model, inspect a live conversation trace, or claim that model behavior passed these cases. To evaluate behavior, a human reviewer or agent harness must run each prompt, capture every additional user turn plus the interaction and tool trace, and compare that evidence with the corresponding `expected` object.
 
+## Updater Safety Regressions
+
+`python3 tests/updater_safety.py` checks duplicate removal and preservation, parent-directory aliases, leaf symlinks, alias changes after replacement, partial cleanup failures, pre-commit rollback, live and crashed lock owners, initialization grace, and both smoke scripts' isolation. It uses temporary installations and subprocesses, with fault injection for filesystem failures. Duplicate candidates are restricted to explicit fixture paths when testing default deletion.
+
+The smoke scripts isolate user directories and cwd before running installers and use `--keep-duplicates` for updater subprocesses: a temporary directory can still have caller-owned installations in its ancestors. The regression suite nests temporary output beneath a fixture ancestor containing a skill and verifies that caller user, project, source-checkout, and ancestor installations retain their exact contents.
+
+CI runs the safety suite on Linux, macOS, and Windows. Process probes are tested against a real child on the current platform; Windows API results are also simulated to cover live, exited, inaccessible, and indeterminate processes. POSIX shell cases are skipped on Windows, and symlink cases are skipped if Windows denies creation. These checks do not substitute for the model forward tests below.
+
 ## Mock Runtime Contract
 
 `python3 tests/mock_runtime.py` exercises the bounded subagent contract without a live Codex runtime. It checks capability inspection, separate need/model/reasoning decisions, exact override propagation, post-approval dispatch, complete joins, disabled serial fallback, and failed-child handling. This is a protocol regression test, not a model-quality test.

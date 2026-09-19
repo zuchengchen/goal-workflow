@@ -784,6 +784,7 @@ def validate_repository(root: Path, checks: Checks) -> None:
     )
     validate_evals(root / "tests" / "evals.json", checks)
     checks.require((root / "tests" / "README.md").is_file(), "missing tests/README.md")
+    checks.require((root / "tests" / "updater_safety.py").is_file(), "missing tests/updater_safety.py")
 
     version_path = root / "VERSION"
     version_text = checks.read_text(version_path)
@@ -850,6 +851,7 @@ def validate_repository(root: Path, checks: Checks) -> None:
             "scripts/smoke-install.sh",
             "tests/mock_runtime.py",
             "tests/updater_helpers.py",
+            "tests/updater_safety.py",
             "quick_validate.py",
             "git diff --check",
         ):

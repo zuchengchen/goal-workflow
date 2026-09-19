@@ -9,6 +9,8 @@ cross-platform staged replacement, and protects the target with a lock.
 from __future__ import annotations
 
 import argparse
+import ctypes
+from ctypes import wintypes
 import json
 import os
 from pathlib import Path
@@ -33,7 +35,7 @@ DOWNLOAD_RETRIES = 3
 DOWNLOAD_CHUNK_BYTES = 64 * 1024
 LOCK_NAME = ".goal-workflow.update.lock"
 LOCK_TIMEOUT_SECONDS = 120
-LOCK_STALE_SECONDS = 3600
+LOCK_INIT_GRACE_SECONDS = 5
 RETRYABLE_HTTP_CODES = {408, 425, 429, 500, 502, 503, 504}
 
 
@@ -304,20 +306,69 @@ def is_goal_skill(path: Path) -> bool:
         return False
 
 
+def is_destination_path(path: Path, destination: Path) -> bool:
+    # Resolve the parent separately: a distinct leaf symlink can be unlinked,
+    # but traversing a parent symlink must never lead us to delete the target.
+    if path.parent.resolve() / path.name == destination.parent.resolve() / destination.name:
+        return True
+    return (
+        not path.is_symlink()
+        and path.exists()
+        and destination.exists()
+        and path.samefile(destination)
+    )
+
+
 def duplicate_installations(destination: Path) -> list[Path]:
-    return [
-        path
-        for path in candidate_duplicate_paths(destination)
-        if path != destination and path_exists(path) and is_goal_skill(path)
-    ]
+    try:
+        return [
+            path
+            for path in candidate_duplicate_paths(destination)
+            if path_exists(path) and not is_destination_path(path, destination) and is_goal_skill(path)
+        ]
+    except OSError as exc:
+        raise UpdateError(f"could not inspect duplicate installations: {exc}") from exc
 
 
-def prune_duplicates(paths: list[Path]) -> None:
+def prune_duplicates(paths: list[Path], destination: Path) -> int:
+    removed = 0
     for path in paths:
         try:
+            # Recheck after replacement; aliases or candidates may have changed
+            # since discovery, and another candidate may already be gone.
+            if not path_exists(path) or is_destination_path(path, destination):
+                continue
+            if not is_goal_skill(path):
+                raise UpdateError(f"duplicate installation identity changed: {path}")
             remove_path(path)
+            removed += 1
         except OSError as exc:
             raise UpdateError(f"could not remove duplicate installation {path}: {exc}") from exc
+    return removed
+
+
+def windows_pid_alive(pid: int) -> bool:
+    # os.kill(pid, 0) terminates processes on Windows. A zero-time handle wait
+    # only observes whether the process has exited, including exit code 259.
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    synchronize = 0x00100000
+    error_invalid_parameter = 87
+    wait_object_0 = 0
+    handle = kernel32.OpenProcess(synchronize, False, pid)
+    if not handle:
+        # Access denied or an indeterminate error is not evidence of death.
+        return ctypes.get_last_error() != error_invalid_parameter
+    try:
+        return kernel32.WaitForSingleObject(handle, 0) != wait_object_0
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 class UpdateLock:
@@ -331,34 +382,43 @@ class UpdateLock:
     def _pid_alive(self, pid: int) -> bool:
         if pid <= 0:
             return False
+        if sys.platform == "win32":
+            return windows_pid_alive(pid)
         try:
             os.kill(pid, 0)
         except PermissionError:
             return True
         except ProcessLookupError:
             return False
-        except OSError:
-            return False
+        except (OSError, OverflowError):
+            return True
         return True
 
     def _is_stale(self) -> bool:
         try:
             if self.path.is_symlink():
                 return False
-            if not self.path.is_dir():
-                return time.time() - self.path.stat().st_mtime >= LOCK_STALE_SECONDS
             age = time.time() - self.path.stat().st_mtime
-            if age < LOCK_STALE_SECONDS:
-                return False
-            owner = json.loads(self.owner_path.read_text(encoding="utf-8"))
-            return not self._pid_alive(int(owner.get("pid", 0)))
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            if not self.path.is_dir():
+                return age >= LOCK_INIT_GRACE_SECONDS
             try:
-                return time.time() - self.path.stat().st_mtime >= LOCK_STALE_SECONDS
-            except OSError:
-                # The lock may have been removed by its owner between the
-                # failed read and this check; let the acquisition loop retry.
-                return False
+                owner = json.loads(self.owner_path.read_text(encoding="utf-8"))
+            except (FileNotFoundError, UnicodeDecodeError, ValueError):
+                return age >= LOCK_INIT_GRACE_SECONDS
+            if (
+                not isinstance(owner, dict)
+                or type(owner.get("pid")) is not int
+                or not 0 < owner["pid"] <= 0xFFFFFFFF
+                or not isinstance(owner.get("token"), str)
+                or not owner["token"]
+            ):
+                return age >= LOCK_INIT_GRACE_SECONDS
+            # A complete owner record can be checked immediately. Only a lock
+            # whose initialization is incomplete needs an age-based grace.
+            return not self._pid_alive(owner["pid"])
+        except OSError:
+            # Missing or unreadable state is not proof that the owner died.
+            return False
 
     def __enter__(self) -> "UpdateLock":
         try:
@@ -499,9 +559,6 @@ def install_bundle(source: Path, destination: Path) -> None:
             os.rename(destination, old_path)
             old_moved = True
         os.rename(staged_skill, destination)
-        if old_moved:
-            remove_path(old_path)
-            old_moved = False
     except (OSError, UpdateError) as exc:
         if old_moved:
             try:
@@ -517,12 +574,24 @@ def install_bundle(source: Path, destination: Path) -> None:
         if isinstance(exc, UpdateError):
             raise
         raise UpdateError(f"skill replacement failed: {exc}") from exc
+    else:
+        # Replacement is committed. Cleanup can partially delete the old
+        # installation, so it must never trigger rollback to that directory.
+        if old_moved:
+            try:
+                remove_path(old_path)
+            except OSError as exc:
+                raise UpdateError(
+                    f"new installation retained at {destination}, but could not remove "
+                    f"old installation residue at {old_path}: {exc}"
+                ) from exc
     finally:
+        error_pending = sys.exc_info()[0] is not None
         if path_exists(stage_root):
             try:
                 remove_path(stage_root)
             except OSError as cleanup_exc:
-                if sys.exc_info()[0] is None:
+                if not error_pending:
                     raise UpdateError(
                         f"could not remove staging directory {stage_root}: {cleanup_exc}"
                     ) from cleanup_exc
@@ -599,8 +668,8 @@ def main(argv: list[str] | None = None) -> int:
                     raise UpdateError("--require-immutable-ref requires a full commit SHA")
                 install_bundle(source, destination)
             if duplicates and not args.keep_duplicates:
-                prune_duplicates(duplicates)
-                print(f"Removed {len(duplicates)} duplicate installation(s).")
+                removed = prune_duplicates(duplicates, destination)
+                print(f"Removed {removed} duplicate installation(s).")
             for message in recovery_messages:
                 print(message)
             ref_message = f" at ref {source_ref}" if source_ref else ""
