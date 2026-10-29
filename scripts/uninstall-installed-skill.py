@@ -63,10 +63,11 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 updater.remove_path(quarantine)
             except OSError as exc:
-                if not updater.path_exists(destination) and updater.path_exists(quarantine):
-                    os.rename(quarantine, destination)
+                # Recursive removal may already have deleted identity or other
+                # essential files; this residue is no longer a safe rollback.
                 raise updater.UpdateError(
-                    f"could not remove quarantined installation {quarantine}: {exc}"
+                    f"uninstall quarantined the skill but could not remove it; "
+                    f"inspect remaining files at {quarantine}: {exc}"
                 ) from exc
             for message in recovery_messages:
                 print(message)

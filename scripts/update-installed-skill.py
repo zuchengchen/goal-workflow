@@ -11,11 +11,13 @@ from __future__ import annotations
 import argparse
 import ctypes
 from ctypes import wintypes
+import errno
 import json
 import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import sys
 import tempfile
 import time
@@ -31,6 +33,8 @@ SKILL_NAME = "goal-workflow"
 EXPECTED_BUNDLE_FILES = {"SKILL.md", "agents/openai.yaml"}
 FULL_SHA_RE = re.compile(r"[0-9a-fA-F]{40}")
 MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
+MAX_EXTRACTED_BYTES = 64 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 4096
 DOWNLOAD_RETRIES = 3
 DOWNLOAD_CHUNK_BYTES = 64 * 1024
 LOCK_NAME = ".goal-workflow.update.lock"
@@ -44,7 +48,10 @@ class UpdateError(Exception):
 
 
 def _decode_scalar(raw: str) -> str:
+    """Read the same restricted YAML string subset as the repository validator."""
     value = raw.strip()
+    if not value:
+        raise UpdateError("empty YAML scalar")
     if value.startswith('"'):
         try:
             parsed = json.loads(value)
@@ -54,9 +61,18 @@ def _decode_scalar(raw: str) -> str:
             raise UpdateError("metadata values must be strings")
         return parsed
     if value.startswith("'"):
-        if len(value) < 2 or not value.endswith("'"):
+        if re.fullmatch(r"'(?:[^']|'')*'", value) is None:
             raise UpdateError(f"invalid quoted metadata value: {value}")
         return value[1:-1].replace("''", "'")
+    if (
+        value[0] in "!&*[]{}#|>@`%"
+        or re.match(r"[-?:](?:\s|$)", value) is not None
+        or re.search(r":(?:\s|$)|\s#", value) is not None
+        or value.lower() in {"null", "~", "true", "false", "yes", "no", "on", "off", "<<", "="}
+        or re.match(r"[-+]?(?:[0-9]|\.[0-9]|\.(?:inf|nan)\b)", value, re.IGNORECASE)
+        is not None
+    ):
+        raise UpdateError(f"unsupported plain YAML scalar; quote string values: {value}")
     return value
 
 
@@ -233,18 +249,40 @@ def download_repository(owner: str, repo: str, ref: str, target: Path) -> Path:
         with zipfile.ZipFile(archive_path) as archive:
             root_real = root.resolve()
             members = archive.infolist()
+            if len(members) > MAX_ARCHIVE_MEMBERS:
+                raise UpdateError("downloaded archive contains too many entries")
+            if sum(member.file_size for member in members) > MAX_EXTRACTED_BYTES:
+                raise UpdateError("expanded repository archive exceeds the size limit")
             for member in members:
                 member_path = (root / member.filename).resolve()
                 if member_path != root_real and root_real not in member_path.parents:
                     raise UpdateError("downloaded archive contains an unsafe path")
-            archive.extractall(root)
             top_levels = {member.filename.split("/", 1)[0] for member in members}
+            top_levels.discard("")
+            if len(top_levels) != 1:
+                raise UpdateError("downloaded repository archive has an unexpected layout")
+
+            # Check metadata before creating any members, then enforce the same
+            # budget on actual output instead of trusting archive declarations.
+            extracted_bytes = 0
+            for member in members:
+                member_path = root / member.filename
+                if member.is_dir():
+                    member_path.mkdir(parents=True, exist_ok=True)
+                    continue
+                member_path.parent.mkdir(parents=True, exist_ok=True)
+                with archive.open(member) as source, member_path.open("wb") as output:
+                    while True:
+                        chunk = source.read(DOWNLOAD_CHUNK_BYTES)
+                        if not chunk:
+                            break
+                        extracted_bytes += len(chunk)
+                        if extracted_bytes > MAX_EXTRACTED_BYTES:
+                            raise UpdateError("expanded repository archive exceeds the size limit")
+                        output.write(chunk)
     except (zipfile.BadZipFile, OSError) as exc:
         raise UpdateError(f"downloaded repository archive is invalid: {exc}") from exc
 
-    top_levels.discard("")
-    if len(top_levels) != 1:
-        raise UpdateError("downloaded repository archive has an unexpected layout")
     return root / next(iter(top_levels))
 
 
@@ -376,8 +414,51 @@ class UpdateLock:
         self.parent = parent
         self.path = parent / LOCK_NAME
         self.owner_path = self.path / "owner.json"
+        # Never unlink this file: waiters must keep locking the same inode.
+        self.guard_path = parent / ".goal-workflow.update.guard"
+        self.guard_fd: int | None = None
         self.token = f"{os.getpid()}-{time.time_ns()}"
         self.acquired = False
+
+    def _acquire_guard(self, deadline: float) -> None:
+        try:
+            if self.guard_path.is_symlink():
+                raise UpdateError(f"update guard path is a symbolic link: {self.guard_path}")
+            flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+            self.guard_fd = os.open(self.guard_path, flags, 0o600)
+            if not stat.S_ISREG(os.fstat(self.guard_fd).st_mode):
+                raise UpdateError(f"update guard is not a regular file: {self.guard_path}")
+            while True:
+                try:
+                    if sys.platform == "win32":
+                        import msvcrt
+
+                        os.lseek(self.guard_fd, 0, os.SEEK_SET)
+                        msvcrt.locking(self.guard_fd, msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+
+                        fcntl.flock(self.guard_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    if os.fstat(self.guard_fd).st_size == 0:
+                        os.write(self.guard_fd, b"\0")
+                    return
+                except OSError as exc:
+                    if exc.errno not in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                        raise
+                    if time.monotonic() >= deadline:
+                        raise UpdateError(
+                            f"another goal-workflow update is in progress: {self.path}"
+                        ) from exc
+                    time.sleep(0.25)
+        except OSError as exc:
+            raise UpdateError(f"could not acquire update guard: {exc}") from exc
+
+    def _release_guard(self) -> None:
+        if self.guard_fd is not None:
+            descriptor, self.guard_fd = self.guard_fd, None
+            # Closing releases both POSIX flock and Windows byte-range locks,
+            # including when a process exits without running this cleanup.
+            os.close(descriptor)
 
     def _pid_alive(self, pid: int) -> bool:
         if pid <= 0:
@@ -426,6 +507,16 @@ class UpdateLock:
         except OSError as exc:
             raise UpdateError(f"could not create lock parent: {exc}") from exc
         deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
+        try:
+            self._acquire_guard(deadline)
+            return self._acquire_owner(deadline)
+        except BaseException:
+            self._release_guard()
+            raise
+
+    def _acquire_owner(self, deadline: float) -> "UpdateLock":
+        # Serialize stale-owner eviction as well as the protected transaction.
+        # The directory record is retained to respect locks from older clients.
         while True:
             try:
                 self.path.mkdir()
@@ -463,15 +554,17 @@ class UpdateLock:
                 raise UpdateError(f"could not acquire update lock: {exc}") from exc
 
     def __exit__(self, _exc_type: object, _exc: object, _traceback: object) -> None:
-        if not self.acquired:
-            return
         try:
-            owner = json.loads(self.owner_path.read_text(encoding="utf-8"))
-            if owner.get("token") == self.token:
-                shutil.rmtree(self.path)
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
-            pass
-        self.acquired = False
+            if self.acquired:
+                try:
+                    owner = json.loads(self.owner_path.read_text(encoding="utf-8"))
+                    if isinstance(owner, dict) and owner.get("token") == self.token:
+                        shutil.rmtree(self.path)
+                except (OSError, ValueError, TypeError):
+                    pass
+        finally:
+            self.acquired = False
+            self._release_guard()
 
 
 def recover_interrupted_update(destination: Path) -> list[str]:
@@ -629,6 +722,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="use an existing repository checkout instead of downloading the URL",
     )
     parser.add_argument("--dest", help="single user skill destination")
+    parser.add_argument(
+        "--no-replace",
+        action="store_true",
+        help="install only if no existing installation is present",
+    )
     duplicate_group = parser.add_mutually_exclusive_group()
     duplicate_group.add_argument(
         "--prune-duplicates",
@@ -651,6 +749,10 @@ def main(argv: list[str] | None = None) -> int:
             raise UpdateError("--require-immutable-ref requires a GitHub URL, not --source-dir")
         with UpdateLock(destination.parent):
             recovery_messages = recover_interrupted_update(destination)
+            if args.no_replace and path_exists(destination):
+                raise UpdateError(
+                    f"destination already exists; rerun the local installer with --replace: {destination}"
+                )
             duplicates = duplicate_installations(destination)
             if duplicates and args.keep_duplicates:
                 print(

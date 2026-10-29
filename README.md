@@ -58,7 +58,8 @@ try {
 [INSTALL.md](INSTALL.md)。
 
 生产部署可用完整 commit SHA，并传入 `--require-immutable-ref`，避免意外跟随 moving
-branch。更新器本身不执行下载仓库中的脚本，且具备大小限制、有限重试、并发锁和中断恢复。
+branch。更新器本身不执行下载仓库中的脚本，且具备下载与解压大小限制、有限重试、
+所有安装入口共用的并发锁和中断恢复。
 
 当前 source 版本为 `0.2.0`。手动 clone、项目级复制、验证、卸载、重复副本清理和迁移步骤统一见 [INSTALL.md](INSTALL.md)。
 

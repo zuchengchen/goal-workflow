@@ -10,11 +10,19 @@ The repository validator and CI currently check the JSON schema, required scenar
 
 ## Updater Safety Regressions
 
-`python3 tests/updater_safety.py` checks duplicate removal and preservation, parent-directory aliases, leaf symlinks, alias changes after replacement, partial cleanup failures, pre-commit rollback, live and crashed lock owners, initialization grace, and both smoke scripts' isolation. It uses temporary installations and subprocesses, with fault injection for filesystem failures. Duplicate candidates are restricted to explicit fixture paths when testing default deletion.
+`python3 tests/updater_safety.py` checks duplicate removal and preservation, parent-directory aliases, leaf symlinks, alias changes after replacement, partial cleanup and uninstall failures, pre-commit rollback, live and crashed lock owners, initialization grace, concurrent lock reclamation, shared shell/Python transactions, and both smoke scripts' isolation. It uses temporary installations and subprocesses, with fault injection for filesystem failures. Duplicate candidates are restricted to explicit fixture paths when testing default deletion.
 
 The smoke scripts isolate user directories and cwd before running installers and use `--keep-duplicates` for updater subprocesses: a temporary directory can still have caller-owned installations in its ancestors. The regression suite nests temporary output beneath a fixture ancestor containing a skill and verifies that caller user, project, source-checkout, and ancestor installations retain their exact contents.
 
 CI runs the safety suite on Linux, macOS, and Windows. Process probes are tested against a real child on the current platform; Windows API results are also simulated to cover live, exited, inaccessible, and indeterminate processes. POSIX shell cases are skipped on Windows, and symlink cases are skipped if Windows denies creation. These checks do not substitute for the model forward tests below.
+
+`python3 tests/updater_helpers.py` checks retries, compressed and expanded size budgets, archive entry limits, boundary-sized valid archives, and rejection before extraction. All downloads use local fixtures; no network request is made.
+
+## Validation and Documented Commands
+
+`python3 tests/validation_contract.py` checks both metadata parsers against valid strings and unsupported YAML types or syntax, verifies bundle acceptance and rejection, and confirms that private Goal files do not affect repository hygiene checks while maintained files still do.
+
+`python3 tests/documented_commands.py` extracts the three manual uninstall snippets directly from `INSTALL.md` and runs them in temporary user and project directories. Correct identity removes only the selected directory; missing or wrong identity must preserve all files and return failure. The Bash examples are skipped on Windows.
 
 ## Mock Runtime Contract
 

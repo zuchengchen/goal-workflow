@@ -53,6 +53,12 @@ class Checks:
 
 
 def decode_yaml_scalar(raw: str, path: Path, checks: Checks) -> str | None:
+    """Read the single-line string subset supported by the bundled metadata.
+
+    Plain values that resemble implicit YAML types or use structural syntax
+    must be quoted. This deliberately avoids implementing a partial YAML
+    type resolver that could silently accept lists, tags, or aliases as text.
+    """
     value = raw.strip()
     if not value:
         checks.errors.append(f"empty YAML scalar in {path}")
@@ -68,10 +74,20 @@ def decode_yaml_scalar(raw: str, path: Path, checks: Checks) -> str | None:
             return None
         return parsed
     if value.startswith("'"):
-        if len(value) < 2 or not value.endswith("'"):
+        if re.fullmatch(r"'(?:[^']|'')*'", value) is None:
             checks.errors.append(f"invalid single-quoted scalar in {path}: {value}")
             return None
         return value[1:-1].replace("''", "'")
+    if (
+        value[0] in "!&*[]{}#|>@`%"
+        or re.match(r"[-?:](?:\s|$)", value) is not None
+        or re.search(r":(?:\s|$)|\s#", value) is not None
+        or value.lower() in {"null", "~", "true", "false", "yes", "no", "on", "off", "<<", "="}
+        or re.match(r"[-+]?(?:[0-9]|\.[0-9]|\.(?:inf|nan)\b)", value, re.IGNORECASE)
+        is not None
+    ):
+        checks.errors.append(f"unsupported plain YAML scalar in {path}; quote string values: {value}")
+        return None
     return value
 
 
@@ -714,7 +730,18 @@ def validate_mirrors(root: Path, canonical: Path, checks: Checks) -> None:
 def validate_text_hygiene(root: Path, checks: Checks) -> None:
     text_suffixes = {".json", ".md", ".py", ".sh", ".yaml", ".yml"}
     text_names = {".gitignore", "LICENSE", "VERSION"}
-    for path in root.rglob("*"):
+    # Use repository-owned paths rather than scanning private Goal files or
+    # dependency trees. This also works in source archives without Git data.
+    root_files = {
+        ".gitignore", "AGENTS.md", "CHANGELOG.md", "INSTALL.md", "LICENSE",
+        "README.md", "SKILL.md", "VERSION",
+    }
+    paths = [root / name for name in sorted(root_files)]
+    for directory in (".github", "agents", "docs", "scripts", "skills", "tests"):
+        source = root / directory
+        if source.is_dir() and not source.is_symlink():
+            paths.extend(source.rglob("*"))
+    for path in paths:
         if ".git" in path.parts or not path.is_file() or path.is_symlink():
             continue
         if path.suffix not in text_suffixes and path.name not in text_names:
@@ -852,6 +879,8 @@ def validate_repository(root: Path, checks: Checks) -> None:
             "tests/mock_runtime.py",
             "tests/updater_helpers.py",
             "tests/updater_safety.py",
+            "tests/validation_contract.py",
+            "tests/documented_commands.py",
             "quick_validate.py",
             "git diff --check",
         ):

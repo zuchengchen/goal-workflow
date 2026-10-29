@@ -118,9 +118,15 @@ python3 /path/to/goal-workflow-source/scripts/update-installed-skill.py \
 ```
 
 更新器不会执行下载仓库中的 Python 脚本；它只读取并检查 canonical bundle 的结构、
-frontmatter 和 agent metadata。下载采用分块读取、64 MiB 大小上限和有限重试。更新过程
-使用跨平台锁；异常中断后的 staging/replacement 残留会在锁内恢复或清理，无法确认身份
-的残留会停止并要求人工检查。
+frontmatter 和 agent metadata。下载采用分块读取和有限重试；压缩包与解压后总内容均不
+超过 64 MiB，压缩包最多包含 4096 个条目。元数据支持单行字符串；含 YAML 特殊语法
+或类似布尔值、数字的字符串须加引号。更新过程使用跨平台锁；异常中断后的
+staging/replacement 残留会在锁内恢复或清理，无法确认身份的残留会停止并要求人工检查。
+
+Shell 安装、卸载与 Python 更新器共用同一事务锁。锁的检查和回收由操作系统文件锁
+保护；安装父目录中的隐藏文件 `.goal-workflow.update.guard` 会保留以维持锁文件身份，
+它不是 skill 副本或备份，进程退出时系统自动释放其文件锁。不要在安装或卸载进行中
+删除这个文件。
 
 锁持有进程已退出时，下一次更新或卸载会立即回收锁；尚未写完的锁信息有 5 秒初始化
 宽限期，仍在运行或无法确认已退出的进程不会仅因锁存在时间长而被驱逐。Windows 使用
@@ -354,32 +360,44 @@ python3 /path/to/goal-workflow-source/scripts/uninstall-installed-skill.py --des
 Windows PowerShell 将 `python3` 替换为 `python` 或 `py -3`。Linux/macOS 仍可使用
 `uninstall-local.sh` 这个 POSIX 辅助脚本。
 
+若卸载在删除部分文件后失败，脚本会保留 `.goal-workflow.uninstall.*` 隔离残留并报告
+确切路径。该目录可能不完整；排除权限等问题后清理报告的残留，不要将它移回正式安装
+路径。需要重新安装时可直接运行项目更新器。
+
 没有 source checkout 时，用户级手工回退为：
 
 ```bash
 dest="${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow"
-test "$dest" = "${CODEX_HOME:-$HOME/.codex}/skills/goal-workflow"
-test -f "$dest/SKILL.md"
-grep -q '^name: goal-workflow$' "$dest/SKILL.md"
-rm -rf -- "$dest"
+if test -f "$dest/SKILL.md" && grep -q '^name: goal-workflow$' "$dest/SKILL.md"; then
+  rm -rf -- "$dest"
+else
+  printf '无法确认 skill 身份，保留目录：%s\n' "$dest" >&2
+  false
+fi
 ```
 
 旧的用户级兼容目录（仅在你确认其中是本 skill 后执行）：
 
 ```bash
 dest="$HOME/.agents/skills/goal-workflow"
-test -f "$dest/SKILL.md"
-grep -q '^name: goal-workflow$' "$dest/SKILL.md"
-rm -rf -- "$dest"
+if test -f "$dest/SKILL.md" && grep -q '^name: goal-workflow$' "$dest/SKILL.md"; then
+  rm -rf -- "$dest"
+else
+  printf '无法确认 skill 身份，保留目录：%s\n' "$dest" >&2
+  false
+fi
 ```
 
 项目级安装（从目标项目根执行）：
 
 ```bash
 dest=".agents/skills/goal-workflow"
-test -f "$dest/SKILL.md"
-grep -q '^name: goal-workflow$' "$dest/SKILL.md"
-rm -rf -- "$dest"
+if test -f "$dest/SKILL.md" && grep -q '^name: goal-workflow$' "$dest/SKILL.md"; then
+  rm -rf -- "$dest"
+else
+  printf '无法确认 skill 身份，保留目录：%s\n' "$dest" >&2
+  false
+fi
 ```
 
 卸载或更新后重启 Codex。本文不假定或宣称任何系统级 skills 目录；管理员部署应以所用 Codex 版本和组织配置的明确文档为准。

@@ -2,11 +2,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-VALIDATOR="$SCRIPT_DIR/validate.py"
-
-rename_path() {
-  python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$1" "$2"
-}
 
 usage() {
   printf '%s\n' \
@@ -59,56 +54,9 @@ if [[ -z "$DEST" ]]; then
   fi
 fi
 
-if [[ -z "$DEST" || "$DEST" == "/" ]]; then
-  printf 'ERROR: refusing unsafe uninstall target: %s\n' "$DEST" >&2
-  exit 2
-fi
-if [[ "$(basename "$DEST")" != "goal-workflow" ]]; then
-  printf 'ERROR: uninstall target must be named goal-workflow: %s\n' "$DEST" >&2
-  exit 2
-fi
-if [[ "$(basename "$(dirname "$DEST")")" != "skills" ]]; then
-  printf 'ERROR: uninstall target must be directly inside a skills directory: %s\n' "$DEST" >&2
-  exit 2
-fi
-if [[ -L "$DEST" ]]; then
-  printf 'ERROR: refusing to uninstall a symbolic link: %s\n' "$DEST" >&2
-  exit 1
-fi
-if [[ ! -d "$DEST" ]]; then
-  printf 'ERROR: uninstall target is not an existing directory: %s\n' "$DEST" >&2
-  exit 1
-fi
-
-DEST_PARENT="$(cd "$(dirname "$DEST")" && pwd -P)"
-DEST="$DEST_PARENT/goal-workflow"
-if [[ "$DEST_PARENT" == "/" || "$(basename "$DEST_PARENT")" != "skills" ]]; then
-  printf 'ERROR: resolved uninstall target is outside a non-root skills directory: %s\n' "$DEST" >&2
-  exit 2
-fi
-if [[ -L "$DEST" || ! -d "$DEST" ]]; then
-  printf 'ERROR: resolved uninstall target is unsafe or missing: %s\n' "$DEST" >&2
-  exit 1
-fi
-
-python3 "$VALIDATOR" --skill-dir "$DEST" --identity-only >/dev/null
-
+# Share the updater's lock for validation, quarantine, and removal.
+UNINSTALL_ARGS=(--dest "$DEST")
 if [[ $DRY_RUN -eq 1 ]]; then
-  printf 'Would uninstall validated goal-workflow at %s\n' "$DEST"
-  exit 0
+  UNINSTALL_ARGS+=(--dry-run)
 fi
-
-timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-QUARANTINE="$DEST_PARENT/.goal-workflow.uninstall.$timestamp.$$"
-suffix=0
-while [[ -e "$QUARANTINE" || -L "$QUARANTINE" ]]; do
-  suffix=$((suffix + 1))
-  QUARANTINE="$DEST_PARENT/.goal-workflow.uninstall.$timestamp.$$.${suffix}"
-done
-
-rename_path "$DEST" "$QUARANTINE"
-if ! rm -rf "$QUARANTINE"; then
-  printf 'ERROR: uninstall quarantined the skill but could not remove it; inspect or recover from %s\n' "$QUARANTINE" >&2
-  exit 1
-fi
-printf 'Uninstalled goal-workflow from %s\n' "$DEST"
+exec python3 "$SCRIPT_DIR/uninstall-installed-skill.py" "${UNINSTALL_ARGS[@]}"

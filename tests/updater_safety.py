@@ -10,7 +10,6 @@ from io import StringIO
 import json
 import os
 from pathlib import Path
-import shlex
 import shutil
 import subprocess
 import sys
@@ -29,6 +28,13 @@ if SPEC is None or SPEC.loader is None:
     raise RuntimeError("could not load updater")
 UPDATER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(UPDATER)
+UNINSTALL_SPEC = importlib.util.spec_from_file_location(
+    "goal_workflow_uninstaller", ROOT / "scripts" / "uninstall-installed-skill.py"
+)
+if UNINSTALL_SPEC is None or UNINSTALL_SPEC.loader is None:
+    raise RuntimeError("could not load uninstaller")
+UNINSTALLER = importlib.util.module_from_spec(UNINSTALL_SPEC)
+UNINSTALL_SPEC.loader.exec_module(UNINSTALLER)
 
 
 def snapshot(path: Path) -> dict[str, bytes]:
@@ -49,6 +55,41 @@ class UpdaterSafetyTests(unittest.TestCase):
 
     def assert_installed(self) -> None:
         self.assertEqual(snapshot(self.destination), snapshot(CANONICAL))
+
+    def track_process(self, command: list[str]) -> subprocess.Popen[str]:
+        process = subprocess.Popen(
+            command, cwd=self.root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+
+        def cleanup() -> None:
+            if process.poll() is None:
+                process.kill()
+            process.communicate(timeout=10)
+
+        self.addCleanup(cleanup)
+        return process
+
+    def await_file(self, path: Path) -> None:
+        deadline = time.monotonic() + 10
+        while not path.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(path.exists(), f"child process did not reach {path}")
+
+    def lock_process(self, body: str, *args: Path) -> subprocess.Popen[str]:
+        code = (
+            "import importlib.util, json, os, sys, time\n"
+            "from pathlib import Path\n"
+            "sys.dont_write_bytecode = True\n"
+            "spec = importlib.util.spec_from_file_location('updater', sys.argv[1])\n"
+            "updater = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(updater)\n"
+            "lock = updater.UpdateLock(Path(sys.argv[2]))\n"
+            + body
+        )
+        return self.track_process(
+            [sys.executable, "-c", code, str(UPDATER_PATH), str(self.destination.parent),
+             *(str(argument) for argument in args)]
+        )
 
     def directory_link(self, link: Path, target: Path) -> None:
         link.parent.mkdir(parents=True, exist_ok=True)
@@ -240,6 +281,88 @@ class UpdaterSafetyTests(unittest.TestCase):
                 owner = json.loads(lock.owner_path.read_text(encoding="utf-8"))
                 self.assertEqual(owner["pid"], os.getpid())
         self.assertFalse(lock.path.exists())
+        self.assertTrue(lock.guard_path.is_file())
+
+    def test_stale_lock_eviction_is_serialized_across_processes(self) -> None:
+        lock_path = self.destination.parent / UPDATER.LOCK_NAME
+        lock_path.mkdir()
+        past = time.time() - UPDATER.LOCK_INIT_GRACE_SECONDS - 1
+        os.utime(lock_path, (past, past))
+        stale_checked = self.root / "stale-checked"
+        resume_first = self.root / "resume-first"
+        first_entered = self.root / "first-entered"
+        release_first = self.root / "release-first"
+        second_started = self.root / "second-started"
+        second_entered = self.root / "second-entered"
+        first = self.lock_process(
+            "original = lock._is_stale\n"
+            "def pause_after_check():\n"
+            "    stale = original()\n"
+            "    assert stale\n"
+            "    Path(sys.argv[3]).touch()\n"
+            "    while not Path(sys.argv[4]).exists(): time.sleep(0.01)\n"
+            "    return stale\n"
+            "lock._is_stale = pause_after_check\n"
+            "with lock:\n"
+            "    Path(sys.argv[5]).touch()\n"
+            "    while not Path(sys.argv[6]).exists(): time.sleep(0.01)\n",
+            stale_checked, resume_first, first_entered, release_first,
+        )
+        self.await_file(stale_checked)
+        second = self.lock_process(
+            "Path(sys.argv[3]).touch()\n"
+            "with lock:\n"
+            "    Path(sys.argv[4]).touch()\n",
+            second_started, second_entered,
+        )
+        self.await_file(second_started)
+        with self.assertRaises(subprocess.TimeoutExpired):
+            second.communicate(timeout=0.3)
+        self.assertFalse(second_entered.exists())
+        resume_first.touch()
+        self.await_file(first_entered)
+        self.assertFalse(second_entered.exists())
+        release_first.touch()
+        for process in (first, second):
+            stdout, stderr = process.communicate(timeout=10)
+            self.assertEqual(process.returncode, 0, stdout + stderr)
+        self.assertTrue(second_entered.exists())
+
+    def test_guard_file_is_reused_after_release(self) -> None:
+        with UPDATER.UpdateLock(self.destination.parent) as first:
+            identity = first.guard_path.stat()
+        with UPDATER.UpdateLock(self.destination.parent) as second:
+            self.assertEqual(second.guard_path.stat().st_ino, identity.st_ino)
+        self.assertFalse(second.path.exists())
+        self.assertTrue(second.guard_path.is_file())
+
+    def test_uninstall_partial_removal_keeps_residue_quarantined(self) -> None:
+        remove = UPDATER.remove_path
+        residues: list[Path] = []
+
+        def partial_remove(path: Path) -> None:
+            if path.name.startswith(".goal-workflow.uninstall."):
+                residues.append(path)
+                (path / "SKILL.md").unlink()
+                raise PermissionError("simulated failure after removing identity")
+            remove(path)
+
+        output = StringIO()
+        with (
+            patch.object(UNINSTALLER, "load_updater", return_value=UPDATER),
+            patch.object(UPDATER, "remove_path", side_effect=partial_remove),
+            redirect_stderr(output),
+        ):
+            result = UNINSTALLER.main(["--dest", str(self.destination)])
+        self.assertEqual(result, 1)
+        self.assertFalse(self.destination.exists())
+        self.assertEqual(len(residues), 1)
+        self.assertTrue((residues[0] / "agents" / "openai.yaml").exists())
+        self.assertIn(str(residues[0]), output.getvalue())
+        self.assertIn("inspect remaining files", output.getvalue())
+        self.update([self.destination])
+        self.assert_installed()
+        self.assertTrue(residues[0].exists())
 
     def test_old_live_owner_is_never_evicted(self) -> None:
         with UPDATER.UpdateLock(self.destination.parent) as holder:
@@ -268,37 +391,50 @@ class UpdaterSafetyTests(unittest.TestCase):
                 self.assertTrue(lock._is_stale())
 
     @unittest.skipIf(sys.platform == "win32", "POSIX installer requires Bash")
-    def test_shell_cleanup_failure_preserves_new_installation(self) -> None:
-        original_rm = shutil.which("rm")
-        self.assertIsNotNone(original_rm)
-        shim_dir = self.root / "bin"
-        shim_dir.mkdir()
-        shim = shim_dir / "rm"
-        shim.write_text(
-            "#!/usr/bin/env bash\nset -euo pipefail\n"
-            'for TARGET in "$@"; do\n'
-            '  case "$TARGET" in\n'
-            "    */.goal-workflow.replace.*)\n"
-            f'      {shlex.quote(original_rm)} -f "$TARGET/SKILL.md"\n'
-            "      exit 1 ;;\n"
-            "  esac\ndone\n"
-            f'exec {shlex.quote(original_rm)} "$@"\n',
-            encoding="utf-8",
-        )
-        shim.chmod(0o755)
-        env = dict(os.environ, PATH=str(shim_dir) + os.pathsep + os.environ["PATH"])
-        result = subprocess.run(
-            ["bash", str(ROOT / "scripts" / "install-local.sh"), "--dest", str(self.destination), "--replace"],
-            cwd=self.root,
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=15,
-        )
-        self.assertNotEqual(result.returncode, 0)
-        self.assert_installed()
-        self.assertIn("new installation retained", result.stderr)
+    def test_shell_lifecycle_waits_for_python_transaction(self) -> None:
+        for script, options in (("install-local.sh", ["--replace"]), ("uninstall-local.sh", [])):
+            with self.subTest(script=script):
+                if not self.destination.exists():
+                    shutil.copytree(CANONICAL, self.destination)
+                replacement = self.destination.parent / ".goal-workflow.replace.live"
+                staging = self.destination.parent / ".goal-workflow.install.live"
+                with UPDATER.UpdateLock(self.destination.parent):
+                    self.destination.rename(replacement)
+                    staging.mkdir()
+                    (staging / "live-marker").touch()
+                    process = self.track_process(
+                        ["bash", str(ROOT / "scripts" / script), "--dest", str(self.destination), *options]
+                    )
+                    with self.assertRaises(subprocess.TimeoutExpired):
+                        process.communicate(timeout=0.3)
+                    self.assertTrue((staging / "live-marker").exists())
+                    self.assertTrue((replacement / "SKILL.md").exists())
+                stdout, stderr = process.communicate(timeout=10)
+                self.assertEqual(process.returncode, 0, stdout + stderr)
+                self.assertFalse(replacement.exists())
+                self.assertFalse(staging.exists())
+                if script == "install-local.sh":
+                    self.assert_installed()
+                else:
+                    self.assertFalse(self.destination.exists())
+
+    @unittest.skipIf(sys.platform == "win32", "POSIX installer requires Bash")
+    def test_shell_no_replace_checks_destination_after_recovery_under_lock(self) -> None:
+        (self.destination / "old-marker").write_text("preserve me\n", encoding="utf-8")
+        before = snapshot(self.destination)
+        replacement = self.destination.parent / ".goal-workflow.replace.live"
+        with UPDATER.UpdateLock(self.destination.parent):
+            self.destination.rename(replacement)
+            process = self.track_process(
+                ["bash", str(ROOT / "scripts" / "install-local.sh"), "--dest", str(self.destination)]
+            )
+            with self.assertRaises(subprocess.TimeoutExpired):
+                process.communicate(timeout=0.3)
+            self.assertFalse(self.destination.exists())
+        stdout, stderr = process.communicate(timeout=10)
+        self.assertEqual(process.returncode, 1, stdout + stderr)
+        self.assertIn("already exists", stderr)
+        self.assertEqual(snapshot(self.destination), before)
 
     def check_smoke_isolation(self, script: str) -> None:
         ancestor = self.root / "caller"
