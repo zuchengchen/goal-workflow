@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import re
 import shutil
@@ -109,6 +110,80 @@ class MetadataStringTests(unittest.TestCase):
                 self.assertTrue(checks.errors)
                 with self.assertRaises(UPDATER.UpdateError):
                     UPDATER.validate_bundle(skill)
+
+
+class CombinedApprovalTests(unittest.TestCase):
+    def test_missing_safety_requirements_fail_workflow_validation(self) -> None:
+        body = (CANONICAL / "SKILL.md").read_text(encoding="utf-8")
+        changes = (
+            (
+                "explicit launch approval and successful save and exact readback",
+                "the presence of a saved file",
+                "explicit launch approval, successful save, and exact readback",
+            ),
+            (
+                "do not ask for start approval again after that readback succeeds",
+                "ask for start approval again after that readback succeeds",
+                "forbid asking for start approval again",
+            ),
+            (
+                "A save-only choice authorizes writing the file, not launch or task execution",
+                "A save-only choice authorizes writing the file and launch",
+                "keep save-only approval separate",
+            ),
+            (
+                "invalidates both save and launch approval",
+                "retains save and launch approval",
+                "invalidate both permissions",
+            ),
+            (
+                "A save or readback failure remains `draft_approved` and forbids activation",
+                "A save or readback failure permits activation",
+                "forbid activation when saving or exact readback fails",
+            ),
+            (
+                "Retrying the same approved content, path, and intent does not require another approval",
+                "Retrying the same approved content, path, and intent requires another approval",
+                "preserve authorization when retrying",
+            ),
+        )
+        for original, replacement, error in changes:
+            with self.subTest(error=error):
+                self.assertIn(original, body)
+                checks = VALIDATOR.Checks()
+                VALIDATOR.validate_workflow(body.replace(original, replacement), Path("SKILL.md"), checks)
+                self.assertTrue(any(error in message for message in checks.errors), checks.errors)
+
+    def test_old_two_question_phase_layout_is_rejected(self) -> None:
+        body = (CANONICAL / "SKILL.md").read_text(encoding="utf-8")
+        for changed, error in (
+            (body.replace("### Approve Save And Start", "### Approve Save"), "combined save and start approval"),
+            (body.replace("### Start\n", "### Approve Start\n\n### Start\n"), "separate Approve Start phase"),
+        ):
+            with self.subTest(error=error):
+                self.assertNotEqual(changed, body)
+                checks = VALIDATOR.Checks()
+                VALIDATOR.validate_workflow(changed, Path("SKILL.md"), checks)
+                self.assertTrue(any(error in message for message in checks.errors), checks.errors)
+
+    def test_evals_require_verified_save_contract_and_reject_second_approval_action(self) -> None:
+        for mode in ("missing_action", "obsolete_action", "missing_forbidden"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                document = json.loads((ROOT / "tests" / "evals.json").read_text(encoding="utf-8"))
+                if mode == "missing_action":
+                    document["actions"].remove("verify_saved_file")
+                    error = "must define combined approval and verified-save actions"
+                elif mode == "obsolete_action":
+                    document["actions"].append("start_before_second_approval")
+                    error = "must not retain the obsolete second-approval action"
+                else:
+                    document["cases"][0]["expected"]["forbidden_actions"].remove("start_before_verified_save")
+                    error = "must forbid launching without authorization or verified save"
+                path = Path(temporary) / "evals.json"
+                path.write_text(json.dumps(document), encoding="utf-8")
+                checks = VALIDATOR.Checks()
+                VALIDATOR.validate_evals(path, checks)
+                self.assertTrue(any(error in message for message in checks.errors), checks.errors)
 
 
 class RepositoryHygieneTests(unittest.TestCase):

@@ -21,7 +21,7 @@ REQUIRED_EVAL_CATEGORIES = {
     "ambiguous",
     "exhaustive",
     "reject_save",
-    "reject_start",
+    "save_only",
     "conflicting_goal",
     "no_goal_tool",
     "path_collision",
@@ -29,6 +29,9 @@ REQUIRED_EVAL_CATEGORIES = {
     "token_budget",
     "verification_integrity",
     "subagent_options",
+    "save_failure",
+    "readback_failure",
+    "approval_invalidation",
 }
 
 
@@ -284,9 +287,8 @@ def validate_phase_order(body: str, path: Path, checks: Checks) -> None:
         ("subagent planning", r"subagent.*planning|planning.*subagent"),
         ("discovery", r"discovery"),
         ("drafting", r"draft"),
-        ("save approval", r"approv.*sav|sav.*approv"),
+        ("combined save and start approval", r"approv.*sav.*(?:and|&).*start"),
         ("saving", r"^save$|^(?:save|write).*(?:goal|prompt).*(?:file)?$"),
-        ("start approval", r"approv.*start|start.*approv"),
         ("Goal mode start or handoff", r"^start$|(?:start|handoff).*(?:goal|mode)|(?:goal|mode).*(?:start|handoff)"),
         ("execution and completion", r"execut|complet"),
     ]
@@ -305,6 +307,60 @@ def validate_phase_order(body: str, path: Path, checks: Checks) -> None:
             )
             return
         cursor = found + 1
+
+
+def validate_combined_approval(body: str, path: Path, checks: Checks) -> None:
+    normalized = re.sub(r"\s+", " ", body)
+    checks.require(
+        "discovering -> drafted -> draft_approved -> saved -> start_approved -> active" in body,
+        f"{path} must retain all six execution checkpoints",
+    )
+    for intent in ("save_and_start", "save_only"):
+        checks.require(
+            f"execution_intent: {intent}" in body,
+            f"{path} must record execution_intent: {intent}",
+        )
+    checks.require(
+        re.search(r"^###\s+Approve Start\s*$", body, re.MULTILINE | re.IGNORECASE) is None,
+        f"{path} must not retain a separate Approve Start phase",
+    )
+    requirements = (
+        (
+            r"(?:do not|never)\s+(?:activate|start).{0,90}explicit launch (?:approval|authorization)"
+            r".{0,100}successful save.{0,80}exact readback",
+            "require explicit launch approval, successful save, and exact readback before activation",
+        ),
+        (
+            r"combined save-and-start confirmation grants both permissions",
+            "let one combined confirmation grant save and launch permissions",
+        ),
+        (
+            r"do not ask for start approval again.{0,100}readback succeeds",
+            "forbid asking for start approval again after successful combined approval and readback",
+        ),
+        (
+            r"save-only choice.{0,100}not launch or task execution",
+            "keep save-only approval separate from launch authorization",
+        ),
+        (
+            r"content or path change.{0,100}invalidates both save and launch approval",
+            "invalidate both permissions when approved content or path changes",
+        ),
+        (
+            r"save or readback failure.{0,100}forbids activation",
+            "forbid activation when saving or exact readback fails",
+        ),
+        (
+            r"retrying the same approved content, path, and intent.{0,100}does not require another approval",
+            "preserve authorization when retrying an unchanged failed operation",
+        ),
+        (
+            r"do not launch a subagent before successful save, exact readback, and confirmed Goal activation",
+            "keep subagent dispatch after verified save and confirmed Goal activation",
+        ),
+    )
+    for pattern, requirement in requirements:
+        require_pattern(checks, normalized, pattern, f"{path} must {requirement}")
 
 
 def validate_workflow(body: str, path: Path, checks: Checks) -> None:
@@ -346,18 +402,7 @@ def validate_workflow(body: str, path: Path, checks: Checks) -> None:
         r"|(?:save|write).{0,180}only after.{0,120}approv"
     )
     require_pattern(checks, normalized, save_gate, f"{path} must enforce approval before saving")
-    require_pattern(
-        checks,
-        normalized,
-        r"second (?:explicit )?approval|second confirmation",
-        f"{path} must name the second approval before Goal mode starts",
-    )
-    require_pattern(
-        checks,
-        normalized,
-        r"(?:do not|never)\s+(?:start|create|activate).{0,240}(?:until|before).{0,160}(?:second|post-save).{0,80}(?:approv|confirm)",
-        f"{path} must prohibit starting Goal mode before the second approval",
-    )
+    validate_combined_approval(body, path, checks)
     checks.require("/goal pause" in body, f"{path} must document /goal pause")
     checks.require("/goal clear" in body, f"{path} must document /goal clear")
     require_pattern(
@@ -574,6 +619,10 @@ def validate_eval_case(
     )
     for action in forbidden:
         checks.require(action in actions, f"{label} uses unknown forbidden action {action!r}")
+    checks.require(
+        {"start_without_launch_approval", "start_before_verified_save"} <= set(forbidden),
+        f"{label} must forbid launching without authorization or verified save",
+    )
 
     if category == "verification_integrity":
         raw_prompt = case.get("prompt")
@@ -657,6 +706,8 @@ def validate_eval_case(
         "waiting_on_conflict",
         "path_collision_prompt",
         "slash_handoff",
+        "save_failed",
+        "readback_failed",
     }
     checks.require(
         expected.get("terminal_state") in terminal_states,
@@ -690,6 +741,18 @@ def validate_evals(path: Path, checks: Checks) -> None:
     )
     action_list = validate_string_list(document.get("actions"), f"{path}.actions", checks)
     actions = set(action_list)
+    combined_actions = {
+        "approve_save_and_start", "verify_saved_file", "ask_start_again",
+        "start_without_launch_approval", "start_before_verified_save",
+    }
+    checks.require(
+        combined_actions <= actions,
+        f"{path} must define combined approval and verified-save actions: {sorted(combined_actions)}",
+    )
+    checks.require(
+        "start_before_second_approval" not in actions,
+        f"{path} must not retain the obsolete second-approval action",
+    )
     cases = document.get("cases")
     if not isinstance(cases, list) or not cases:
         checks.errors.append(f"{path}.cases must be a non-empty array")
@@ -704,8 +767,8 @@ def validate_evals(path: Path, checks: Checks) -> None:
             ids.append(case["id"])
     checks.require(len(ids) == len(set(ids)), f"{path} case ids must be unique")
     checks.require(
-        set(categories) == REQUIRED_EVAL_CATEGORIES and len(categories) == len(REQUIRED_EVAL_CATEGORIES),
-        f"{path} must contain exactly one case for each required category: "
+        set(categories) == REQUIRED_EVAL_CATEGORIES,
+        f"{path} must contain at least one case for each required category: "
         f"{sorted(REQUIRED_EVAL_CATEGORIES)}",
     )
 

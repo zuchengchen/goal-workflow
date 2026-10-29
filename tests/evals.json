@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "Declarative behavioral scenarios for goal-workflow gates, fallbacks, language handling, verification integrity, optional subagent settings, and tool ordering. Checkpoint replies list decisive turns only; a harness must capture routine discovery turns without inventing approvals.",
+  "description": "Declarative behavioral scenarios for one save-and-start approval, save-only and later-start choices, verified saving, authorization invalidation, fallbacks, language handling, verification integrity, optional subagent settings, and tool ordering. Checkpoint replies list decisive turns only; a harness must capture routine discovery turns without inventing approvals.",
   "actions": [
     "inspect_context",
     "check_active_goal",
@@ -39,7 +39,6 @@
     "draft_before_direction_approval",
     "draft_before_coverage_review",
     "write_before_save_approval",
-    "start_before_second_approval",
     "change_language",
     "set_unrequested_token_budget",
     "drop_explicit_token_budget",
@@ -52,12 +51,19 @@
     "classify_any_bang_prefixed_line_as_tex_error",
     "ignore_producer_exit_status",
     "reuse_stale_verification_artifact",
-    "treat_inconclusive_evidence_as_success"
+    "treat_inconclusive_evidence_as_success",
+    "approve_save_and_start",
+    "verify_saved_file",
+    "ask_start_again",
+    "start_without_launch_approval",
+    "start_before_verified_save",
+    "revise_draft",
+    "change_save_path"
   ],
   "cases": [
     {
       "id": "narrow-fast-path",
-      "title": "A narrow task uses the fast interview without bypassing either gate",
+      "title": "A narrow task saves and launches after one approval and verified saving",
       "category": "narrow",
       "user_language": "en-US",
       "prompt": "$goal-workflow fast: fix the typo in the CLI help and run the existing focused test",
@@ -67,11 +73,7 @@
           "content": "n"
         },
         {
-          "at": "save_approval",
-          "content": "y"
-        },
-        {
-          "at": "start_approval",
+          "at": "save_start_approval",
           "content": "y"
         }
       ],
@@ -86,15 +88,18 @@
         "mode": "fast",
         "required_behaviors": [
           "State the narrow assumed approach and ask only high-risk missing questions.",
-          "Show the draft and obtain separate save and start approvals.",
-          "Create the goal only after the saved file exists and start approval is affirmative."
+          "Show the complete draft and absolute path, then offer 1/y for save_and_start, 2 for save_only, and n or requested changes for no write or launch.",
+          "Treat y as combined authorization for the exact displayed content and path; save, perform exact destination readback, and create the goal without another start question."
         ],
         "forbidden_actions": [
           "invoke_define_goal",
           "ask_multiple_questions",
           "write_before_save_approval",
-          "start_before_second_approval",
-          "set_unrequested_token_budget"
+          "set_unrequested_token_budget",
+          "start_without_launch_approval",
+          "start_before_verified_save",
+          "ask_start_again",
+          "approve_start"
         ],
         "tool_order": [
           {
@@ -113,9 +118,14 @@
             "reason": "The approved path is part of the displayed draft."
           },
           {
-            "before": "approve_save",
+            "before": "show_draft",
+            "after": "approve_save_and_start",
+            "reason": "The complete prompt and absolute path are displayed before authorization."
+          },
+          {
+            "before": "approve_save_and_start",
             "after": "recheck_path",
-            "reason": "The path is checked again only after the first gate opens."
+            "reason": "Recheck the approved destination before writing."
           },
           {
             "before": "recheck_path",
@@ -123,9 +133,19 @@
             "reason": "The atomic write follows the final collision check."
           },
           {
-            "before": "approve_start",
+            "before": "approve_save_and_start",
+            "after": "write_goal_file",
+            "reason": "Write only after approval of this exact content and path."
+          },
+          {
+            "before": "write_goal_file",
+            "after": "verify_saved_file",
+            "reason": "The destination must be read back and exactly match the approved content."
+          },
+          {
+            "before": "verify_saved_file",
             "after": "create_goal",
-            "reason": "The second gate protects goal creation."
+            "reason": "Launch authorization takes effect only after successful exact destination readback."
           }
         ],
         "terminal_state": "goal_started"
@@ -147,12 +167,8 @@
           "content": "n"
         },
         {
-          "at": "save_approval",
-          "content": "y"
-        },
-        {
-          "at": "start_approval",
-          "content": "n"
+          "at": "save_start_approval",
+          "content": "2"
         }
       ],
       "setup": {
@@ -167,14 +183,20 @@
         "required_behaviors": [
           "Inspect the repository before recommending a direction.",
           "Present two or three approaches with trade-offs and recommend one.",
-          "Remain in Chinese and stop after the user rejects Goal mode start."
+          "Remain in Chinese and honor the save_only choice without asking a follow-up start question.",
+          "Treat option 2 as save_only: verify the saved file, report its absolute path, and remain saved without a follow-up start question."
         ],
         "forbidden_actions": [
           "invoke_define_goal",
           "draft_before_direction_approval",
           "draft_before_coverage_review",
           "create_goal",
-          "change_language"
+          "change_language",
+          "start_without_launch_approval",
+          "start_before_verified_save",
+          "ask_start_again",
+          "slash_handoff",
+          "dispatch_subagents"
         ],
         "tool_order": [
           {
@@ -198,14 +220,29 @@
             "reason": "The exact path is shown as part of the draft."
           },
           {
+            "before": "show_draft",
+            "after": "approve_save",
+            "reason": "The complete prompt and absolute path are displayed before authorization."
+          },
+          {
             "before": "approve_save",
             "after": "recheck_path",
-            "reason": "Saving remains a separate explicit gate."
+            "reason": "Recheck the approved destination before writing."
           },
           {
             "before": "recheck_path",
             "after": "write_goal_file",
-            "reason": "The destination is rechecked immediately before writing."
+            "reason": "The atomic write follows the final collision check."
+          },
+          {
+            "before": "approve_save",
+            "after": "write_goal_file",
+            "reason": "Write only after approval of this exact content and path."
+          },
+          {
+            "before": "write_goal_file",
+            "after": "verify_saved_file",
+            "reason": "The destination must be read back and exactly match the approved content."
           }
         ],
         "terminal_state": "saved_not_started"
@@ -231,12 +268,8 @@
           "content": "n"
         },
         {
-          "at": "save_approval",
-          "content": "y"
-        },
-        {
-          "at": "start_approval",
-          "content": "y"
+          "at": "save_start_approval",
+          "content": "1"
         }
       ],
       "setup": {
@@ -251,14 +284,18 @@
         "required_behaviors": [
           "Ask exactly one focused discovery question per turn.",
           "Treat Unresolved as temporary and continue after the first coverage review.",
-          "Draft only after the user explicitly elects to stop exploring."
+          "Draft only after the user explicitly elects to stop exploring.",
+          "Obtain one save_and_start decision for the displayed complete prompt and absolute path; after exact saved-file readback, launch without asking for start approval again."
         ],
         "forbidden_actions": [
           "invoke_define_goal",
           "ask_multiple_questions",
           "draft_before_coverage_review",
           "write_before_save_approval",
-          "start_before_second_approval"
+          "start_without_launch_approval",
+          "start_before_verified_save",
+          "ask_start_again",
+          "approve_start"
         ],
         "tool_order": [
           {
@@ -282,17 +319,42 @@
             "reason": "The final path is resolved before the complete prompt is displayed."
           },
           {
-            "before": "approve_start",
+            "before": "show_draft",
+            "after": "approve_save_and_start",
+            "reason": "The complete prompt and absolute path are displayed before authorization."
+          },
+          {
+            "before": "approve_save_and_start",
+            "after": "recheck_path",
+            "reason": "Recheck the approved destination before writing."
+          },
+          {
+            "before": "recheck_path",
+            "after": "write_goal_file",
+            "reason": "The atomic write follows the final collision check."
+          },
+          {
+            "before": "approve_save_and_start",
+            "after": "write_goal_file",
+            "reason": "Write only after approval of this exact content and path."
+          },
+          {
+            "before": "write_goal_file",
+            "after": "verify_saved_file",
+            "reason": "The destination must be read back and exactly match the approved content."
+          },
+          {
+            "before": "verify_saved_file",
             "after": "create_goal",
-            "reason": "Goal creation follows the second approval."
+            "reason": "Launch authorization takes effect only after successful exact destination readback."
           }
         ],
         "terminal_state": "goal_started"
       }
     },
     {
-      "id": "reject-save-gate",
-      "title": "Rejecting the save gate leaves the filesystem and Goal mode untouched",
+      "id": "reject-save-and-start",
+      "title": "Rejecting combined authorization leaves the filesystem and Goal mode untouched",
       "category": "reject_save",
       "user_language": "en-US",
       "prompt": "$goal-workflow prepare a release-readiness goal",
@@ -302,7 +364,7 @@
           "content": "n"
         },
         {
-          "at": "save_approval",
+          "at": "save_start_approval",
           "content": "n"
         }
       ],
@@ -317,14 +379,19 @@
         "mode": "standard",
         "required_behaviors": [
           "Revise or await feedback after the user rejects the displayed draft.",
-          "Keep the resolved path read-only, do not write the goal file, and do not ask to start Goal mode."
+          "Keep the resolved path read-only; n grants neither save nor launch permission, and no follow-up start question is asked."
         ],
         "forbidden_actions": [
           "invoke_define_goal",
           "write_goal_file",
           "create_goal",
           "write_before_save_approval",
-          "start_before_second_approval"
+          "start_without_launch_approval",
+          "start_before_verified_save",
+          "ask_start_again",
+          "approve_save_and_start",
+          "approve_save",
+          "approve_start"
         ],
         "tool_order": [
           {
@@ -336,20 +403,15 @@
             "before": "reserve_path",
             "after": "show_draft",
             "reason": "The displayed draft includes the exact resolved path."
-          },
-          {
-            "before": "show_draft",
-            "after": "approve_save",
-            "reason": "The user sees the complete draft before deciding."
           }
         ],
         "terminal_state": "awaiting_revision"
       }
     },
     {
-      "id": "reject-start-gate",
-      "title": "Rejecting start preserves the approved file without creating a goal",
-      "category": "reject_start",
+      "id": "save-only-choice",
+      "title": "Choosing save_only preserves the approved file without starting a goal",
+      "category": "save_only",
       "user_language": "en-US",
       "prompt": "$goal-workflow define a focused dependency-upgrade goal",
       "checkpoint_replies": [
@@ -358,12 +420,8 @@
           "content": "n"
         },
         {
-          "at": "save_approval",
-          "content": "y"
-        },
-        {
-          "at": "start_approval",
-          "content": "n"
+          "at": "save_start_approval",
+          "content": "2"
         }
       ],
       "setup": {
@@ -377,13 +435,17 @@
         "mode": "standard",
         "required_behaviors": [
           "Write the approved file atomically after checking the path.",
-          "Report the saved path and stop when start approval is negative."
+          "Option 2 authorizes only saving; report the verified saved path and remain saved without offering another approval question.",
+          "Treat option 2 as save_only: verify the saved file, report its absolute path, and remain saved without a follow-up start question."
         ],
         "forbidden_actions": [
           "invoke_define_goal",
           "create_goal",
           "slash_handoff",
-          "start_before_second_approval"
+          "start_without_launch_approval",
+          "start_before_verified_save",
+          "ask_start_again",
+          "dispatch_subagents"
         ],
         "tool_order": [
           {
@@ -394,12 +456,12 @@
           {
             "before": "show_draft",
             "after": "approve_save",
-            "reason": "The exact content and path are shown before the first gate."
+            "reason": "The complete prompt and absolute path are displayed before authorization."
           },
           {
             "before": "approve_save",
             "after": "recheck_path",
-            "reason": "The path is checked again immediately before writing."
+            "reason": "Recheck the approved destination before writing."
           },
           {
             "before": "recheck_path",
@@ -407,9 +469,14 @@
             "reason": "The atomic write follows the final collision check."
           },
           {
+            "before": "approve_save",
+            "after": "write_goal_file",
+            "reason": "Write only after approval of this exact content and path."
+          },
+          {
             "before": "write_goal_file",
-            "after": "approve_start",
-            "reason": "The second gate is presented only after a successful save."
+            "after": "verify_saved_file",
+            "reason": "The destination must be read back and exactly match the approved content."
           }
         ],
         "terminal_state": "saved_not_started"
@@ -440,7 +507,9 @@
           "clear_active_goal",
           "pause_active_goal",
           "complete_active_goal",
-          "create_goal"
+          "create_goal",
+          "start_without_launch_approval",
+          "start_before_verified_save"
         ],
         "tool_order": [
           {
@@ -469,11 +538,7 @@
           "content": "n"
         },
         {
-          "at": "save_approval",
-          "content": "y"
-        },
-        {
-          "at": "start_approval",
+          "at": "save_start_approval",
           "content": "y"
         }
       ],
@@ -487,35 +552,49 @@
       "expected": {
         "mode": "standard",
         "required_behaviors": [
-          "Complete discovery and both approval gates even without a goal tool.",
-          "Return the exact /goal Follow the saved goal file handoff after start approval."
+          "Complete discovery and one combined authorization even without a callable create tool.",
+          "Return the exact /goal Follow the saved goal file handoff only after exact saved-file readback; do not ask a second start question or claim activation before execution is confirmed.",
+          "Obtain one save_and_start decision for the displayed complete prompt and absolute path; after exact saved-file readback, launch without asking for start approval again."
         ],
         "forbidden_actions": [
           "invoke_define_goal",
           "create_goal",
           "enable_goals_automatically",
-          "start_before_second_approval"
+          "start_without_launch_approval",
+          "start_before_verified_save",
+          "ask_start_again",
+          "approve_start"
         ],
         "tool_order": [
           {
-            "before": "approve_save",
+            "before": "show_draft",
+            "after": "approve_save_and_start",
+            "reason": "The complete prompt and absolute path are displayed before authorization."
+          },
+          {
+            "before": "approve_save_and_start",
             "after": "recheck_path",
-            "reason": "The file gate is independent of goal-tool availability."
+            "reason": "Recheck the approved destination before writing."
           },
           {
             "before": "recheck_path",
             "after": "write_goal_file",
-            "reason": "The final collision check precedes the atomic write."
+            "reason": "The atomic write follows the final collision check."
+          },
+          {
+            "before": "approve_save_and_start",
+            "after": "write_goal_file",
+            "reason": "Write only after approval of this exact content and path."
           },
           {
             "before": "write_goal_file",
-            "after": "approve_start",
-            "reason": "The handoff gate occurs after the file is saved."
+            "after": "verify_saved_file",
+            "reason": "The destination must be read back and exactly match the approved content."
           },
           {
-            "before": "approve_start",
+            "before": "verify_saved_file",
             "after": "slash_handoff",
-            "reason": "The slash command replaces goal creation only after approval."
+            "reason": "Launch authorization takes effect only after successful exact destination readback."
           }
         ],
         "terminal_state": "slash_handoff"
@@ -552,7 +631,9 @@
           "overwrite_goal_file",
           "write_goal_file",
           "show_draft",
-          "create_goal"
+          "create_goal",
+          "start_without_launch_approval",
+          "start_before_verified_save"
         ],
         "tool_order": [
           {
@@ -593,7 +674,9 @@
           "invoke_define_goal",
           "change_language",
           "ask_multiple_questions",
-          "set_unrequested_token_budget"
+          "set_unrequested_token_budget",
+          "start_without_launch_approval",
+          "start_before_verified_save"
         ],
         "tool_order": [
           {
@@ -622,11 +705,7 @@
           "content": "n"
         },
         {
-          "at": "save_approval",
-          "content": "y"
-        },
-        {
-          "at": "start_approval",
+          "at": "save_start_approval",
           "content": "y"
         }
       ],
@@ -641,19 +720,28 @@
         "mode": "standard",
         "required_behaviors": [
           "Preserve the explicit 24000 token budget in the saved Goal Tool Options section.",
-          "Pass token_budget 24000 when creating the goal after both approvals."
+          "Pass token_budget 24000 when creating the goal after combined authorization and successful exact saved-file readback.",
+          "Obtain one save_and_start decision for the displayed complete prompt and absolute path; after exact saved-file readback, launch without asking for start approval again."
         ],
         "forbidden_actions": [
           "invoke_define_goal",
           "drop_explicit_token_budget",
           "write_before_save_approval",
-          "start_before_second_approval"
+          "start_without_launch_approval",
+          "start_before_verified_save",
+          "ask_start_again",
+          "approve_start"
         ],
         "tool_order": [
           {
-            "before": "approve_save",
+            "before": "show_draft",
+            "after": "approve_save_and_start",
+            "reason": "The complete prompt and absolute path are displayed before authorization."
+          },
+          {
+            "before": "approve_save_and_start",
             "after": "recheck_path",
-            "reason": "The requested budget does not weaken the save gate."
+            "reason": "Recheck the approved destination before writing."
           },
           {
             "before": "recheck_path",
@@ -661,14 +749,19 @@
             "reason": "The atomic write follows the final collision check."
           },
           {
-            "before": "write_goal_file",
-            "after": "approve_start",
-            "reason": "The saved prompt remains the source of truth."
+            "before": "approve_save_and_start",
+            "after": "write_goal_file",
+            "reason": "Write only after approval of this exact content and path."
           },
           {
-            "before": "approve_start",
+            "before": "write_goal_file",
+            "after": "verify_saved_file",
+            "reason": "The destination must be read back and exactly match the approved content."
+          },
+          {
+            "before": "verify_saved_file",
             "after": "create_goal_with_token_budget",
-            "reason": "The explicit budget is applied only at approved goal creation."
+            "reason": "Launch authorization takes effect only after successful exact destination readback."
           }
         ],
         "terminal_state": "goal_started"
@@ -686,12 +779,8 @@
           "content": "n"
         },
         {
-          "at": "save_approval",
-          "content": "y"
-        },
-        {
-          "at": "start_approval",
-          "content": "n"
+          "at": "save_start_approval",
+          "content": "2"
         }
       ],
       "setup": {
@@ -709,7 +798,8 @@
           "Calibrate any secondary detector so the benign `!\\left...` sample passes and the real `! Undefined control sequence.` sample fails.",
           "Preserve producer failures through every pipeline and distinguish search outcomes `match`, `no match`, and `search/read error`.",
           "Treat missing, stale, unreadable, truncated, or otherwise inconclusive evidence as verification failure.",
-          "Do not infer a TeX error from every bang-prefixed line; use producer-native status or a TeX-aware calibrated check."
+          "Do not infer a TeX error from every bang-prefixed line; use producer-native status or a TeX-aware calibrated check.",
+          "Treat option 2 as save_only: verify the saved file, report its absolute path, and remain saved without a follow-up start question."
         ],
         "forbidden_actions": [
           "invoke_define_goal",
@@ -720,7 +810,11 @@
           "treat_inconclusive_evidence_as_success",
           "write_before_save_approval",
           "create_goal",
-          "start_before_second_approval"
+          "start_without_launch_approval",
+          "start_before_verified_save",
+          "ask_start_again",
+          "slash_handoff",
+          "dispatch_subagents"
         ],
         "tool_order": [
           {
@@ -739,19 +833,29 @@
             "reason": "Verification integrity is resolved before the coverage summary and draft."
           },
           {
+            "before": "show_draft",
+            "after": "approve_save",
+            "reason": "The complete prompt and absolute path are displayed before authorization."
+          },
+          {
             "before": "approve_save",
             "after": "recheck_path",
-            "reason": "Saving remains behind the first approval gate."
+            "reason": "Recheck the approved destination before writing."
           },
           {
             "before": "recheck_path",
             "after": "write_goal_file",
-            "reason": "The approved file is written only after the collision recheck."
+            "reason": "The atomic write follows the final collision check."
+          },
+          {
+            "before": "approve_save",
+            "after": "write_goal_file",
+            "reason": "Write only after approval of this exact content and path."
           },
           {
             "before": "write_goal_file",
-            "after": "approve_start",
-            "reason": "The saved verification contract precedes the second gate."
+            "after": "verify_saved_file",
+            "reason": "The destination must be read back and exactly match the approved content."
           }
         ],
         "terminal_state": "saved_not_started"
@@ -781,11 +885,7 @@
           "content": "n"
         },
         {
-          "at": "save_approval",
-          "content": "y"
-        },
-        {
-          "at": "start_approval",
+          "at": "save_start_approval",
           "content": "y"
         }
       ],
@@ -801,15 +901,19 @@
         "required_behaviors": [
           "Inspect callable subagent dispatch, join/status, model, and reasoning capabilities before asking configuration questions.",
           "Ask whether parallel subagents are needed, then ask the model and reasoning depth in separate questions before the coverage summary.",
-          "Save enabled, model inherit, and reasoning high as exact Subagent Options and apply them only after both approvals.",
-          "Dispatch only independent bounded workers concurrently, join every handle, and keep shared-file edits and final verification in the parent Goal."
+          "Save enabled, model inherit, and reasoning high as exact Subagent Options and apply them only after combined authorization, exact saved-file readback, and confirmed Goal activation.",
+          "Dispatch only independent bounded workers concurrently, join every handle, and keep shared-file edits and final verification in the parent Goal.",
+          "Obtain one save_and_start decision for the displayed complete prompt and absolute path; after exact saved-file readback, launch without asking for start approval again."
         ],
         "forbidden_actions": [
           "invoke_define_goal",
           "ask_multiple_questions",
           "set_unrequested_subagent_option",
           "drop_selected_subagent_option",
-          "start_before_second_approval"
+          "start_without_launch_approval",
+          "start_before_verified_save",
+          "ask_start_again",
+          "approve_start"
         ],
         "tool_order": [
           {
@@ -838,17 +942,400 @@
             "reason": "The saved configuration is part of the final coverage review."
           },
           {
-            "before": "approve_start",
-            "after": "dispatch_subagents",
-            "reason": "No subagent is launched before the second approval."
-          },
-          {
             "before": "dispatch_subagents",
             "after": "join_subagents",
             "reason": "The parent waits for every dispatched handle before integrating results."
+          },
+          {
+            "before": "show_draft",
+            "after": "approve_save_and_start",
+            "reason": "The complete prompt and absolute path are displayed before authorization."
+          },
+          {
+            "before": "approve_save_and_start",
+            "after": "recheck_path",
+            "reason": "Recheck the approved destination before writing."
+          },
+          {
+            "before": "recheck_path",
+            "after": "write_goal_file",
+            "reason": "The atomic write follows the final collision check."
+          },
+          {
+            "before": "approve_save_and_start",
+            "after": "write_goal_file",
+            "reason": "Write only after approval of this exact content and path."
+          },
+          {
+            "before": "write_goal_file",
+            "after": "verify_saved_file",
+            "reason": "The destination must be read back and exactly match the approved content."
+          },
+          {
+            "before": "verify_saved_file",
+            "after": "create_goal",
+            "reason": "Launch authorization takes effect only after successful exact destination readback."
+          },
+          {
+            "before": "create_goal",
+            "after": "dispatch_subagents",
+            "reason": "Subagents may execute only after verified saving and confirmed parent Goal activation."
           }
         ],
         "terminal_state": "goal_started"
+      }
+    },
+    {
+      "id": "save-only-later-start",
+      "title": "A later unsolicited start request may activate a previously verified save_only goal",
+      "category": "save_only",
+      "user_language": "en-US",
+      "prompt": "$goal-workflow fast: plan a focused CLI help correction with the existing help test.",
+      "checkpoint_replies": [
+        {
+          "at": "coverage_summary",
+          "content": "n"
+        },
+        {
+          "at": "save_start_approval",
+          "content": "Save only; do not start yet."
+        },
+        {
+          "at": "user_initiated_start",
+          "content": "Now start the goal from the file you saved."
+        }
+      ],
+      "setup": {
+        "requested_depth": "fast",
+        "goal_tool": "available",
+        "active_goal": "none",
+        "goal_file": "absent",
+        "explicit_token_budget": null
+      },
+      "expected": {
+        "mode": "fast",
+        "required_behaviors": [
+          "Interpret the explicit save-only response as save permission without launch permission.",
+          "After successful readback, report the saved path and end the turn in saved without a follow-up question.",
+          "The harness sends a new unsolicited start request only after the saved-only turn ends; record that request as approve_start, revalidate the unchanged saved file, inspect current Goal state, and then activate.",
+          "Do not treat the original save-only choice as launch permission or infer later approval from file existence."
+        ],
+        "forbidden_actions": [
+          "invoke_define_goal",
+          "ask_start_again",
+          "start_without_launch_approval",
+          "start_before_verified_save"
+        ],
+        "tool_order": [
+          {
+            "before": "show_draft",
+            "after": "approve_save",
+            "reason": "The complete prompt and absolute path are displayed before authorization."
+          },
+          {
+            "before": "approve_save",
+            "after": "recheck_path",
+            "reason": "Recheck the approved destination before writing."
+          },
+          {
+            "before": "recheck_path",
+            "after": "write_goal_file",
+            "reason": "The atomic write follows the final collision check."
+          },
+          {
+            "before": "approve_save",
+            "after": "write_goal_file",
+            "reason": "Write only after approval of this exact content and path."
+          },
+          {
+            "before": "write_goal_file",
+            "after": "verify_saved_file",
+            "reason": "The destination must be read back and exactly match the approved content."
+          },
+          {
+            "before": "verify_saved_file",
+            "after": "approve_start",
+            "reason": "The unsolicited later start request follows the completed save-only turn."
+          },
+          {
+            "before": "approve_start",
+            "after": "create_goal",
+            "reason": "The later explicit user request grants launch permission for the unchanged verified file."
+          }
+        ],
+        "terminal_state": "goal_started"
+      }
+    },
+    {
+      "id": "combined-save-failure",
+      "title": "Combined approval does not launch when the write fails",
+      "category": "save_failure",
+      "user_language": "en-US",
+      "prompt": "$goal-workflow fast: plan a focused CLI help correction with the existing help test.",
+      "checkpoint_replies": [
+        {
+          "at": "coverage_summary",
+          "content": "n"
+        },
+        {
+          "at": "save_start_approval",
+          "content": "y"
+        }
+      ],
+      "setup": {
+        "requested_depth": "fast",
+        "goal_tool": "available",
+        "active_goal": "none",
+        "goal_file": "absent",
+        "explicit_token_budget": null
+      },
+      "expected": {
+        "mode": "fast",
+        "required_behaviors": [
+          "Obtain combined authorization only after showing the complete draft and absolute save path.",
+          "When the harness injects a persistent write error before the approved file is written, report the failure and remain draft_approved; do not advance to saved, start_approved, or active.",
+          "Keep both the content and path tied to the original authorization; failure does not authorize a rewritten prompt or an alternative destination."
+        ],
+        "forbidden_actions": [
+          "invoke_define_goal",
+          "ask_start_again",
+          "start_without_launch_approval",
+          "start_before_verified_save",
+          "create_goal",
+          "slash_handoff",
+          "dispatch_subagents",
+          "verify_saved_file",
+          "approve_start"
+        ],
+        "tool_order": [
+          {
+            "before": "show_draft",
+            "after": "approve_save_and_start",
+            "reason": "The complete prompt and absolute path are displayed before authorization."
+          },
+          {
+            "before": "approve_save_and_start",
+            "after": "recheck_path",
+            "reason": "Recheck the approved destination before writing."
+          },
+          {
+            "before": "recheck_path",
+            "after": "write_goal_file",
+            "reason": "The atomic write follows the final collision check."
+          },
+          {
+            "before": "approve_save_and_start",
+            "after": "write_goal_file",
+            "reason": "Write only after approval of this exact content and path."
+          },
+          {
+            "before": "write_goal_file",
+            "after": "verify_saved_file",
+            "reason": "The destination must be read back and exactly match the approved content."
+          },
+          {
+            "before": "verify_saved_file",
+            "after": "create_goal",
+            "reason": "Launch authorization takes effect only after successful exact destination readback."
+          }
+        ],
+        "terminal_state": "save_failed"
+      }
+    },
+    {
+      "id": "combined-readback-failure",
+      "title": "Combined approval does not launch when saved content fails exact readback",
+      "category": "readback_failure",
+      "user_language": "en-US",
+      "prompt": "$goal-workflow fast: plan a focused CLI help correction with the existing help test.",
+      "checkpoint_replies": [
+        {
+          "at": "coverage_summary",
+          "content": "n"
+        },
+        {
+          "at": "save_start_approval",
+          "content": "y"
+        }
+      ],
+      "setup": {
+        "requested_depth": "fast",
+        "goal_tool": "available",
+        "active_goal": "none",
+        "goal_file": "absent",
+        "explicit_token_budget": null
+      },
+      "expected": {
+        "mode": "fast",
+        "required_behaviors": [
+          "Obtain combined authorization only after showing the complete draft and absolute save path.",
+          "When the harness injects a destination readback that differs from the approved content, report the mismatch and remain draft_approved; do not treat a successful write alone as saved or activate the goal.",
+          "Keep both the content and path tied to the original authorization; failure does not authorize a rewritten prompt or an alternative destination."
+        ],
+        "forbidden_actions": [
+          "invoke_define_goal",
+          "ask_start_again",
+          "start_without_launch_approval",
+          "start_before_verified_save",
+          "create_goal",
+          "slash_handoff",
+          "dispatch_subagents",
+          "verify_saved_file",
+          "approve_start"
+        ],
+        "tool_order": [
+          {
+            "before": "show_draft",
+            "after": "approve_save_and_start",
+            "reason": "The complete prompt and absolute path are displayed before authorization."
+          },
+          {
+            "before": "approve_save_and_start",
+            "after": "recheck_path",
+            "reason": "Recheck the approved destination before writing."
+          },
+          {
+            "before": "recheck_path",
+            "after": "write_goal_file",
+            "reason": "The atomic write follows the final collision check."
+          },
+          {
+            "before": "approve_save_and_start",
+            "after": "write_goal_file",
+            "reason": "Write only after approval of this exact content and path."
+          },
+          {
+            "before": "write_goal_file",
+            "after": "verify_saved_file",
+            "reason": "The destination must be read back and exactly match the approved content."
+          },
+          {
+            "before": "verify_saved_file",
+            "after": "create_goal",
+            "reason": "Launch authorization takes effect only after successful exact destination readback."
+          }
+        ],
+        "terminal_state": "readback_failed"
+      }
+    },
+    {
+      "id": "combined-content-change",
+      "title": "Changing the approved content invalidates both save and launch authorization",
+      "category": "approval_invalidation",
+      "user_language": "en-US",
+      "prompt": "$goal-workflow fast: plan a focused CLI help correction with the existing help test.",
+      "checkpoint_replies": [
+        {
+          "at": "coverage_summary",
+          "content": "n"
+        },
+        {
+          "at": "save_start_approval",
+          "content": "1"
+        },
+        {
+          "at": "after_save_start_approval_before_write",
+          "content": "Change the scope to cover all CLI help examples, not just the focused correction."
+        }
+      ],
+      "setup": {
+        "requested_depth": "fast",
+        "goal_tool": "available",
+        "active_goal": "none",
+        "goal_file": "absent",
+        "explicit_token_budget": null
+      },
+      "expected": {
+        "mode": "fast",
+        "required_behaviors": [
+          "A content change after combined authorization invalidates both permissions; return to drafted, display the entire revised prompt and absolute path, and wait for a new decision.",
+          "The harness sends the revision before the first write; neither the old nor the new destination may be written without a new explicit decision.",
+          "Do not interpret the revision request as renewed save_and_start authorization or reuse either permission from the earlier decision."
+        ],
+        "forbidden_actions": [
+          "invoke_define_goal",
+          "ask_start_again",
+          "start_without_launch_approval",
+          "start_before_verified_save",
+          "write_goal_file",
+          "create_goal",
+          "slash_handoff",
+          "dispatch_subagents",
+          "approve_start"
+        ],
+        "tool_order": [
+          {
+            "before": "show_draft",
+            "after": "approve_save_and_start",
+            "reason": "The original complete draft and path precede the original authorization."
+          },
+          {
+            "before": "approve_save_and_start",
+            "after": "revise_draft",
+            "reason": "The user changes the authorized draft before writing begins."
+          }
+        ],
+        "terminal_state": "awaiting_revision"
+      }
+    },
+    {
+      "id": "combined-path-change",
+      "title": "Changing the approved path invalidates both save and launch authorization",
+      "category": "approval_invalidation",
+      "user_language": "en-US",
+      "prompt": "$goal-workflow fast: plan a focused CLI help correction with the existing help test.",
+      "checkpoint_replies": [
+        {
+          "at": "coverage_summary",
+          "content": "n"
+        },
+        {
+          "at": "save_start_approval",
+          "content": "1"
+        },
+        {
+          "at": "after_save_start_approval_before_write",
+          "content": "Use filename 2026-10-29-cli-help-revised.md instead of the approved filename."
+        }
+      ],
+      "setup": {
+        "requested_depth": "fast",
+        "goal_tool": "available",
+        "active_goal": "none",
+        "goal_file": "absent",
+        "explicit_token_budget": null
+      },
+      "expected": {
+        "mode": "fast",
+        "required_behaviors": [
+          "A destination change after combined authorization invalidates both permissions; resolve and display the new absolute path with the complete prompt, then wait for a new decision.",
+          "The harness sends the revision before the first write; neither the old nor the new destination may be written without a new explicit decision.",
+          "Do not interpret the revision request as renewed save_and_start authorization or reuse either permission from the earlier decision."
+        ],
+        "forbidden_actions": [
+          "invoke_define_goal",
+          "ask_start_again",
+          "start_without_launch_approval",
+          "start_before_verified_save",
+          "write_goal_file",
+          "create_goal",
+          "slash_handoff",
+          "dispatch_subagents",
+          "approve_start"
+        ],
+        "tool_order": [
+          {
+            "before": "show_draft",
+            "after": "approve_save_and_start",
+            "reason": "The original complete draft and path precede the original authorization."
+          },
+          {
+            "before": "approve_save_and_start",
+            "after": "change_save_path",
+            "reason": "The user changes the authorized draft before writing begins."
+          }
+        ],
+        "terminal_state": "awaiting_revision"
       }
     }
   ]

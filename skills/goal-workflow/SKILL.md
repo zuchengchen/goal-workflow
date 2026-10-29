@@ -1,13 +1,13 @@
 ---
 name: goal-workflow
-description: Turn a rough task into an approved, saved, and executable Codex Goal mode prompt through adaptive brainstorming, optional bounded subagent planning, and a one-question-at-a-time discovery interview. Use when the user invokes `$goal-workflow`, asks to define or refine a durable Codex goal, or wants explicit scope, verification, risk, subagent settings, file-save approval, and launch approval before Goal mode starts.
+description: Turn a rough task into an executable Codex Goal mode prompt through adaptive brainstorming, optional bounded subagent planning, and a one-question-at-a-time discovery interview, with one confirmation to save and start or a save-only choice. Use when the user invokes `$goal-workflow`, asks to define or refine a durable Codex goal, or wants explicit scope, verification, risk, and subagent settings before Goal mode starts.
 ---
 
 # Goal Workflow
 
 ## Purpose
 
-Turn rough intent into a concrete Goal mode prompt, decide whether bounded parallel subagents are useful, save the approved prompt under the target project's `.codex/goals/` directory, obtain a second approval, and then activate or hand off the goal.
+Turn rough intent into a concrete Goal mode prompt, decide whether bounded parallel subagents are useful, and ask once whether to save and start it or only save it. After approval, save the exact prompt under the target project's `.codex/goals/` directory and verify it before activating or handing off the goal when launch was authorized.
 
 Keep this workflow self-contained. Do not invoke or trigger `$define-goal`, even when that skill is installed. Apply the quality standard in this file directly.
 
@@ -18,14 +18,14 @@ This is a planning workflow until the goal becomes active. Do not implement the 
 - Use the user's language for every question, option, summary, approval request, and handoff. Do not reuse a fixed-language template.
 - Ask one concise discovery question at a time. Ask two details together only when they cannot be answered independently.
 - Inspect relevant local context before asking the user for facts that can be discovered safely.
-- Do not write the goal file before the first explicit approval.
-- Do not activate Goal mode before the second explicit approval, given only after a successful save and readback.
-- Never interpret silence, an unrelated confirmation, or approval of a design direction as either approval gate.
+- Do not write the goal file before explicit save approval tied to the complete prompt and absolute path.
+- Do not activate Goal mode before explicit launch approval and successful save and exact readback. One combined save-and-start confirmation grants both permissions; do not ask for start approval again after that readback succeeds.
+- A save-only choice authorizes writing the file, not launch or task execution. Never interpret silence, an unrelated confirmation, or approval of a design direction as save or launch permission.
 - Do not silently expand scope or weaken verification.
 - Never copy secret values, credentials, or private tokens into the draft or saved goal file; refer to their names or retrieval mechanism instead.
 - Verification must not pass on absent, stale, incomplete, unreadable, or indeterminate evidence, or fail on a known benign collision in the target format.
 - Do not mark a goal complete without the evidence required by its saved prompt.
-- During `discovering` (the investigating phase), resolve subagent capability and policy before the coverage summary. Ask separately whether parallel subagents are needed, which currently available model to use, and which currently available reasoning depth to use when they are enabled. Do not launch a subagent before the second approval.
+- During `discovering` (the investigating phase), resolve subagent capability and policy before the coverage summary. Ask separately whether parallel subagents are needed, which currently available model to use, and which currently available reasoning depth to use when they are enabled. Do not launch a subagent before successful save, exact readback, and confirmed Goal activation.
 - Never claim parallel execution unless a callable dispatch and join/status operation exists. Pass a model or reasoning override only when the user selected it and the callable operation accepts it; `inherit` means omit that override.
 - Keep the parent Goal as the sole owner of shared files, shared state, Goal status, integration, and final verification. Subagents may only handle bounded work with disjoint ownership and must return a compact result or isolated artifact.
 
@@ -39,16 +39,16 @@ Track exactly one workflow state:
 discovering -> drafted -> draft_approved -> saved -> start_approved -> active
 ```
 
-Never skip or merge states.
+These are execution checkpoints, not separate user questions. Never skip the save or readback checkpoint.
 
 - `discovering`: inspect context, handle existing-goal state, choose depth, brainstorm, resolve subagent policy, interview, build the coverage map, and resolve the save path.
 - `drafted`: show the complete proposed prompt and absolute save path. No file has been written.
-- `draft_approved`: the user has explicitly approved saving that exact prompt to that exact path. Any content or path change returns to `drafted` and invalidates the approval.
+- `draft_approved`: the user has explicitly approved saving that exact prompt to that exact path. Record the choice as `execution_intent: save_and_start` or `execution_intent: save_only`. Any content or path change returns to `drafted` and invalidates both save and launch approval.
 - `saved`: write succeeded and a readback exactly matched the approved content. A write attempt alone is not sufficient.
-- `start_approved`: after the save, the user explicitly approved starting Goal mode. Declining leaves the workflow in `saved`.
+- `start_approved`: the saved file passed exact readback and launch is authorized. With `save_and_start`, enter this state automatically using the same confirmation. With `save_only`, remain `saved` until the user later explicitly requests launch of that unchanged saved goal.
 - `active`: after `start_approved`, a callable goal tool confirmed activation, an existing matching goal was selected as the execution target, or the user confirmed executing the slash-command handoff.
 
-If new information materially changes the objective, scope, verification, risks, stop conditions, or path, return to `discovering` or `drafted` as appropriate. A save failure remains `draft_approved`; an activation failure remains `start_approved`.
+If new information materially changes the objective, scope, verification, risks, stop conditions, or path, return to `discovering` or `drafted` as appropriate and invalidate both permissions. A save or readback failure remains `draft_approved` and forbids activation; an activation failure remains `start_approved`. Retrying the same approved content, path, and intent does not require another approval; do not treat a failed operation as success.
 
 ## Workflow
 
@@ -234,11 +234,17 @@ Do not mark this goal complete until the objective is achieved and every require
 
 The `Goal Mode Objective` must be concise enough to pass directly to a goal tool or `/goal`; the saved file remains the detailed source of truth.
 
-### Approve Save
+### Approve Save And Start
 
-Enter `drafted`, show the exact complete prompt and its absolute path, and ask in the user's language whether to save that exact content to that exact path. Clearly identify this as the first approval gate.
+Enter `drafted`, show the exact complete prompt and its absolute path, and ask one question in the user's language with these choices:
 
-If the user requests any change, revise the draft and ask again. Enter `draft_approved` only after an unambiguous affirmative answer. A prior design approval, coverage approval, or overwrite approval does not satisfy this gate.
+1. Save and start (recommended): save that exact content to that exact path, verify it by readback, then start Goal mode immediately.
+2. Save only: save and verify the file for later use, then stop without starting Goal mode.
+3. Revise or cancel: do not write or start; revise the draft or end the workflow as requested.
+
+State that the user may reply with a number; `y`/`Y` or a clear yes to this combined question means save and start, while `n`/`N` means neither operation is approved. Explicit save-only wording always selects save only. If a reply approves saving but is unclear about launch, record `save_only` rather than inferring launch permission.
+
+Enter `draft_approved` only after explicit approval of the displayed content and path, and retain the selected execution intent. A prior design approval, coverage approval, or overwrite approval does not satisfy this confirmation. If the user requests any content or path change, revise the draft and obtain approval for that revision; the earlier save-and-start permission no longer applies.
 
 ### Save
 
@@ -251,17 +257,11 @@ Only in `draft_approved`:
 5. Re-read the destination from the absolute path and compare it with the approved content.
 6. Enter `saved` only on an exact match; otherwise report the error and remain `draft_approved`.
 
-Report the absolute path and a concise objective summary. Any content or path change after saving requires a new draft and a new save approval.
-
-### Approve Start
-
-Only after successful readback, ask in the user's language whether to start Goal mode from the saved file. Clearly identify this as the second approval gate and name the accepted affirmative and negative replies.
-
-Enter `start_approved` only after an unambiguous affirmative answer. If the user declines, remain `saved` and provide the absolute file path for later use.
+Report the absolute path and a concise objective summary. For `save_and_start`, immediately enter `start_approved` and continue to Start without another approval question or ending the turn. For `save_only`, remain `saved` and provide the path for later use. Any content or path change after saving requires a new draft and renewed approval of both the content and intended action.
 
 ### Start
 
-Recheck existing goal state after entering `start_approved`.
+Recheck existing goal state after entering `start_approved`. A later explicit request to start a previously save-only goal grants launch permission for that unchanged saved goal; re-read and verify the file before entering `start_approved`, without asking the user to repeat the request.
 
 - If `create_goal` or an equivalent compatible tool is callable and no conflicting goal is active, create the goal with the concise `Goal Mode Objective`.
 - Pass `token_budget` only when the user explicitly requested a token budget or supplied its numeric value, and preserve that value in the saved `Goal Tool Options` section so resumed execution can recover it. Never infer it from interview depth, task size, or available context.
@@ -281,7 +281,7 @@ Once active, treat the saved goal file as read-only and as the source of truth:
 - Run every required verification item and report actual results.
 - Treat skipped, zero-work, missing, stale, unreadable, truncated, or otherwise indeterminate evidence as failed verification unless the saved prompt explicitly defines it as acceptable.
 - When a check fails, distinguish product failure from verifier or environment failure. Do not change product behavior merely to appease a false positive or treat a verifier failure as success. Repair a project-owned verifier only when scope permits and the acceptance criterion remains unchanged; otherwise follow the material goal-revision rules.
-- Do not silently edit the active goal file. If the goal must change materially, stop execution, obtain explicit user direction, create a versioned successor by default, and repeat the draft, save, and start approvals as applicable.
+- Do not silently edit the active goal file. If the goal must change materially, stop execution, obtain explicit user direction, create a versioned successor by default, and show its complete draft and path for a new combined save-and-start or save-only confirmation.
 - Mark complete only when the objective is achieved and all required evidence passes. Mark blocked only when the applicable goal-tool contract permits it and the task is genuinely blocked.
 
 At completion, report the absolute goal file path, material changes, verification results, and remaining risks.
@@ -302,4 +302,4 @@ When the saved `Subagent Options` says `enabled: true`:
 
 ## Resume Rules
 
-On a resumed conversation, reconstruct state from the conversation, file readback, and observable goal state. Never infer either approval from the presence of a file or an active goal alone. If evidence is incomplete, choose the latest provable earlier state and repeat the necessary gate.
+On a resumed conversation, reconstruct state and execution intent from the conversation, file readback, and observable goal state. Never infer save or launch approval from the presence of a file or an active goal alone. When a combined approval for the unchanged content and path is provable, retain it and continue from the verified checkpoint without asking again. Preserve a save-only choice until an explicit later launch request. If the approval evidence or exact approved content is missing, choose the latest provable earlier state and obtain only the missing confirmation.
